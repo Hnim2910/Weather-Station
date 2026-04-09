@@ -22,7 +22,7 @@
 - màn hình oled 0.96 inch 128x96
 - module cảm biến nhiệt độ, độ ẩm, áp suất không khí AHT20 + BMP280
 - module cảm biến mưa SP0016
-- module cảm biến từ HALL A3144 v1, mục địch là gắn vào một trục có cánh quạt có 3 cánh đều nhau, đặt 1 nam châm lên 1 cánh và khi xoay thì cảm biến từ sẽ nhận và sẽ đo được tốc độ gió
+- module cảm biến từ HALL A3144 v1, mục đích là gắn vào một trục có cánh quạt có 3 cánh đều nhau, đặt 1 nam châm lên 1 cánh và khi xoay thì cảm biến từ sẽ nhận và sẽ đo được tốc độ gió
 
 ## Todo
 
