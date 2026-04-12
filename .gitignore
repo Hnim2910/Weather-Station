@@ -5,3 +5,24 @@ node_modules/
 dist/
 coverage/
 *.log
+.DS_Store
+Thumbs.db
+
+# Build and cache
+build/
+out/
+.turbo/
+.cache/
+
+# TypeScript
+*.tsbuildinfo
+
+# Local IDE files
+.vscode/
+.idea/
+
+# Arduino / embedded
+*.bin
+*.elf
+*.map
+*.hex
