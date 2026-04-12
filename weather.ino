@@ -11,6 +11,7 @@
 #define RAIN_AO 32
 #define RAIN_DO 2
 #define HALL_PIN 27
+#define DEVICE_ID "ws-001"
 
 // Cấu hình OLED
 #define SCREEN_WIDTH 128
@@ -21,11 +22,28 @@
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 Adafruit_AHTX0 aht;
 Adafruit_BMP280 bmp; 
+bool bmpReady = false;
+
+void scanI2CDevices() {
+  Serial.println("Scanning I2C...");
+  for (byte address = 1; address < 127; address++) {
+    Wire.beginTransmission(address);
+    if (Wire.endTransmission() == 0) {
+      Serial.print("Found I2C device at 0x");
+      if (address < 16) {
+        Serial.print("0");
+      }
+      Serial.println(address, HEX);
+    }
+  }
+}
 
 // Biến điều khiển màn hình
 unsigned long previousMillis = 0;
 const long screenInterval = 5000; // Đổi màn hình mỗi 5 giây
 int screenState = 0; // 0: Nhiệt độ & Độ ẩm, 1: Lượng mưa & Tốc độ gió
+unsigned long lastSerialPrintTime = 0;
+const long serialInterval = 2000; // In Serial mỗi 2 giây
 
 // Biến cho cảm biến Hall (đo tốc độ gió)
 volatile int pulseCount = 0;
@@ -57,8 +75,15 @@ void setup() {
   if (!aht.begin(&Wire, 0, AHT20_ADDR)) {
     Serial.println("Khong tim thay AHT20!");
   }
-  if (!bmp.begin(0x76)) { // Địa chỉ I2C BMP280 thường là 0x76 hoặc 0x77
+  bmpReady = bmp.begin(0x76);
+  if (!bmpReady) {
+    bmpReady = bmp.begin(0x77);
+  }
+  if (!bmpReady) { // Địa chỉ I2C BMP280 thường là 0x76 hoặc 0x77
     Serial.println("Khong tim thay BMP280!");
+    scanI2CDevices();
+  } else {
+    Serial.println("BMP280 da san sang");
   }
 
   // 3. Khởi tạo Cảm biến mưa & Hall
@@ -85,14 +110,18 @@ void loop() {
   float temperature = temp.temperature;
   float hum = humidity.relative_humidity;
 
-  // (Lưu ý: BMP280 cũng đo được nhiệt độ và thêm Áp suất, bạn có thể gọi bmp.readPressure() nếu muốn dùng)
+  // 1.1 Áp suất từ BMP280 (đổi từ Pa sang hPa)
+  float pressure = NAN;
+  if (bmpReady) {
+    pressure = bmp.readPressure() / 100.0;
+  }
 
-  // 2. Lượng mưa (Cảm biến mưa Analog)
-  // ADC ESP32 là 12-bit (0-4095). Ướt = 0, Khô = 4095. Đảo ngược lại thành phần trăm (0-100%)
+  // 2. Cảm biến mưa SP0016
   int rainRaw = analogRead(RAIN_AO);
-  float rainPercentage = map(rainRaw, 4095, 0, 0, 100); 
-  if (rainPercentage < 0) rainPercentage = 0;
-  if (rainPercentage > 100) rainPercentage = 100;
+  int rainDigital = digitalRead(RAIN_DO);
+  float rainPercent = map(rainRaw, 4095, 0, 0, 100);
+  if (rainPercent < 0) rainPercent = 0;
+  if (rainPercent > 100) rainPercent = 100;
 
   // 3. Tốc độ gió (Hall Sensor) - Cập nhật mỗi 2 giây
   if (currentMillis - lastWindCalcTime >= 2000) {
@@ -102,6 +131,25 @@ void loop() {
     
     pulseCount = 0; // Reset bộ đếm cho chu kỳ tiếp theo
     lastWindCalcTime = currentMillis;
+  }
+
+  // 4. In dữ liệu ra Serial theo dạng JSON để tiện debug và gửi backend sau này
+  if (currentMillis - lastSerialPrintTime >= serialInterval) {
+    lastSerialPrintTime = currentMillis;
+
+    Serial.print("{\"deviceId\":\"");
+    Serial.print(DEVICE_ID);
+    Serial.print("\",\"temperature\":");
+    Serial.print(temperature, 1);
+    Serial.print(",\"humidity\":");
+    Serial.print(hum, 1);
+    Serial.print(",\"pressure\":");
+    Serial.print(pressure, 1);
+    Serial.print(",\"rain\":");
+    Serial.print(rainPercent, 0);
+    Serial.print(",\"windSpeed\":");
+    Serial.print(windSpeed, 1);
+    Serial.println("}");
   }
 
   // ==========================================
@@ -148,11 +196,11 @@ void loop() {
     display.print(windSpeed, 1);
     display.print(" m/s");
 
-    // Lượng mưa (hiển thị % độ ẩm ướt của module)
+    // Mức ướt quy ước từ cảm biến mưa analog
     display.setCursor(0, 45);
-    display.print("R:");
-    display.print(rainPercentage, 0);
-    display.print(" %");
+    display.print("RAIN : ");
+    display.print(rainPercent, 0);
+    display.print("%");
   }
 
   display.display();
@@ -165,4 +213,4 @@ void loop() {
 
 Công thức đo tốc độ gió: Trong code hiện tại, biến windSpeed = pulseCount * 0.5; chỉ là code giữ chỗ (placeholder). Khi lắp ráp phần cứng cánh quạt 3 cánh xong, sẽ cần đo chu vi quỹ đạo của nam châm rồi tính quãng đường đi được trong 1 giây để ra được công thức m/s chuẩn nhất.
 
-Cảm biến mưa: Hiện tại module SP0016 chỉ đo được độ "ướt" của bề mặt (từ 0 đến 100%). Như đã viết trong README, nếu muốn đo "lượng mưa" (mm) chuẩn xác thì phải thiết kế module dạng (tipping bucket) ở Phase 2. */
+Cảm biến mưa: Module SP0016 hiện đang quy đổi tín hiệu analog thành rain theo thang 0-100% để dễ nhìn trên OLED và JSON. Đây chỉ là mức ướt của bề mặt cảm biến, không phải lượng mưa (mm). Nếu muốn đo "lượng mưa" chuẩn xác thì phải thiết kế module dạng tipping bucket ở Phase 2. */
