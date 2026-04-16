@@ -8,6 +8,11 @@ async function connectDatabase() {
   console.log("Connected to MongoDB");
 }
 
+function getDatabaseStatus() {
+  return mongoose.connection.readyState === 1 ? "connected" : "disconnected";
+}
+
 module.exports = {
-  connectDatabase
+  connectDatabase,
+  getDatabaseStatus
 };
