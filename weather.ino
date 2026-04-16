@@ -1,4 +1,6 @@
 #include <Wire.h>
+#include <WiFi.h>
+#include <HTTPClient.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <Adafruit_AHTX0.h>
@@ -13,6 +15,11 @@
 #define HALL_PIN 27
 #define DEVICE_ID "ws-001"
 
+// Cau hinh Wi-Fi va backend
+const char* WIFI_SSID = "SSID";
+const char* WIFI_PASSWORD = "PASSWORD";
+const char* API_URL = "http://IP:5000/api/readings";
+
 // Cấu hình OLED
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
@@ -23,6 +30,86 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 Adafruit_AHTX0 aht;
 Adafruit_BMP280 bmp; 
 bool bmpReady = false;
+
+// Biến điều khiển màn hình
+unsigned long previousMillis = 0;
+const long screenInterval = 5000; // Đổi màn hình mỗi 5 giây
+int screenState = 0; // 0: Nhiệt độ & Độ ẩm, 1: Lượng mưa & Tốc độ gió
+unsigned long lastSerialPrintTime = 0;
+const long serialInterval = 2000; // In Serial mỗi 2 giây
+unsigned long lastPostTime = 0;
+const long postInterval = 5000; // Gửi backend mỗi 5 giây
+
+// Biến cho cảm biến Hall (đo tốc độ gió)
+volatile int pulseCount = 0;
+unsigned long lastWindCalcTime = 0;
+float windSpeed = 0.0;
+
+void connectToWiFi() {
+  if (WiFi.status() == WL_CONNECTED) {
+    return;
+  }
+
+  Serial.print("Dang ket noi WiFi: ");
+  Serial.println(WIFI_SSID);
+
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+  unsigned long startAttempt = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - startAttempt < 10000) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println();
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("WiFi da ket noi");
+    Serial.print("IP: ");
+    Serial.println(WiFi.localIP());
+  } else {
+    Serial.println("Khong the ket noi WiFi");
+  }
+}
+
+void postReading(const String& payload) {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi chua san sang, bo qua POST");
+    return;
+  }
+
+  HTTPClient http;
+  http.begin(API_URL);
+  http.addHeader("Content-Type", "application/json");
+
+  int httpResponseCode = http.POST(payload);
+  Serial.print("HTTP POST response: ");
+  Serial.println(httpResponseCode);
+
+  if (httpResponseCode < 200 || httpResponseCode >= 300) {
+    Serial.print("HTTP error: ");
+    Serial.println(http.getString());
+  }
+
+  http.end();
+}
+
+String buildPayload(float temperature, float hum, float pressure, float rainPercent, float windSpeed) {
+  String payload = "{\"deviceId\":\"";
+  payload += DEVICE_ID;
+  payload += "\",\"temperature\":";
+  payload += String(temperature, 1);
+  payload += ",\"humidity\":";
+  payload += String(hum, 1);
+  payload += ",\"pressure\":";
+  payload += String(pressure, 1);
+  payload += ",\"rain\":";
+  payload += String(rainPercent, 0);
+  payload += ",\"windSpeed\":";
+  payload += String(windSpeed, 1);
+  payload += "}";
+
+  return payload;
+}
 
 void scanI2CDevices() {
   Serial.println("Scanning I2C...");
@@ -38,18 +125,6 @@ void scanI2CDevices() {
   }
 }
 
-// Biến điều khiển màn hình
-unsigned long previousMillis = 0;
-const long screenInterval = 5000; // Đổi màn hình mỗi 5 giây
-int screenState = 0; // 0: Nhiệt độ & Độ ẩm, 1: Lượng mưa & Tốc độ gió
-unsigned long lastSerialPrintTime = 0;
-const long serialInterval = 2000; // In Serial mỗi 2 giây
-
-// Biến cho cảm biến Hall (đo tốc độ gió)
-volatile int pulseCount = 0;
-unsigned long lastWindCalcTime = 0;
-float windSpeed = 0.0;
-
 // Hàm ngắt (Interrupt) đếm xung từ cảm biến từ
 void IRAM_ATTR countPulse() {
   pulseCount++;
@@ -58,6 +133,7 @@ void IRAM_ATTR countPulse() {
 void setup() {
   Serial.begin(115200);
   Wire.begin(SDA_PIN, SCL_PIN); // Khởi tạo I2C với chân custom
+  connectToWiFi();
 
   // 1. Khởi tạo OLED
   if(!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
@@ -118,7 +194,6 @@ void loop() {
 
   // 2. Cảm biến mưa SP0016
   int rainRaw = analogRead(RAIN_AO);
-  int rainDigital = digitalRead(RAIN_DO);
   float rainPercent = map(rainRaw, 4095, 0, 0, 100);
   if (rainPercent < 0) rainPercent = 0;
   if (rainPercent > 100) rainPercent = 100;
@@ -133,23 +208,23 @@ void loop() {
     lastWindCalcTime = currentMillis;
   }
 
-  // 4. In dữ liệu ra Serial theo dạng JSON để tiện debug và gửi backend sau này
+  String payload = buildPayload(temperature, hum, pressure, rainPercent, windSpeed);
+
+  // 4. In dữ liệu ra Serial theo dạng JSON để tiện debug
   if (currentMillis - lastSerialPrintTime >= serialInterval) {
     lastSerialPrintTime = currentMillis;
+    Serial.println(payload);
+  }
 
-    Serial.print("{\"deviceId\":\"");
-    Serial.print(DEVICE_ID);
-    Serial.print("\",\"temperature\":");
-    Serial.print(temperature, 1);
-    Serial.print(",\"humidity\":");
-    Serial.print(hum, 1);
-    Serial.print(",\"pressure\":");
-    Serial.print(pressure, 1);
-    Serial.print(",\"rain\":");
-    Serial.print(rainPercent, 0);
-    Serial.print(",\"windSpeed\":");
-    Serial.print(windSpeed, 1);
-    Serial.println("}");
+  // 5. Gửi dữ liệu lên backend theo chu kỳ riêng
+  if (currentMillis - lastPostTime >= postInterval) {
+    lastPostTime = currentMillis;
+
+    if (WiFi.status() != WL_CONNECTED) {
+      connectToWiFi();
+    }
+
+    postReading(payload);
   }
 
   // ==========================================
