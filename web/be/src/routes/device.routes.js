@@ -4,6 +4,7 @@ const {
   claimDevice,
   unclaimDevice,
   adminForceUnclaimDevice,
+  getDistrictAnalytics,
   getDeviceAlerts,
   updateDeviceAlerts
 } = require("../controllers/device.controller");
@@ -14,6 +15,7 @@ const router = express.Router();
 router.use(requireAuth);
 router.get("/", listDevices);
 router.post("/claim", claimDevice);
+router.get("/district-analytics", requireRole("admin"), getDistrictAnalytics);
 router.get("/:deviceId/alerts", getDeviceAlerts);
 router.patch("/:deviceId/alerts", updateDeviceAlerts);
 router.post("/:deviceId/unclaim", unclaimDevice);

@@ -22,7 +22,7 @@
 - màn hình oled 0.96 inch 128x96
 - module cảm biến nhiệt độ, độ ẩm, áp suất không khí AHT20 + BMP280
 - module cảm biến mưa SP0016
-- module cảm biến từ HALL A3144 v1, mục đích là gắn vào một trục có cánh quạt có 3 cánh đều nhau, đặt 1 nam châm lên 1 cánh và khi xoay thì cảm biến từ sẽ nhận và sẽ đo được tốc độ gió
+- module cảm biến từ HALL A3144 v1
 
 ## Todo
 
@@ -31,7 +31,7 @@ Tạo thiết bị đo các thông số môi trường xung quanh với các tí
 1. đo nhiệt độ, độ ẩm, đo lượng mưa, đo tốc độ gió và đưa ra màn hình:
 - hiển thị 2 màn hình qua lại màn 1 nhiệt độ, độ ẩm, màn 2 lượng mưa, tốc độ gió
 
-2. cho phép thiết bị pair với máy tính qua bluetooth trên giao diện web (tham khảo hình thức pair giống kiểu các thiết bị mi band)
+2. cho phép thiết bị pair với máy tính qua bluetooth trên giao diện web app (tham khảo hình thức pair giống kiểu các thiết bị mi band)
 
 3. web dùng công nghệ nextjs và mongoose
 

@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const { HANOI_DISTRICTS } = require("../constants/hanoi-districts");
 
 const alertRuleStateSchema = new mongoose.Schema(
   {
@@ -106,6 +107,13 @@ const deviceSchema = new mongoose.Schema(
     lastSeenAt: {
       type: Date,
       default: null
+    },
+    district: {
+      type: String,
+      enum: HANOI_DISTRICTS,
+      default: null,
+      trim: true,
+      index: true
     },
     alertState: {
       type: alertRuleStateSchema,

@@ -2,7 +2,19 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { RefreshCw, Users, Cpu, ActivitySquare, LogOut } from "lucide-react";
+import {
+  RefreshCw,
+  Users,
+  Cpu,
+  ActivitySquare,
+  LogOut,
+  MapPinned,
+  CalendarRange,
+  Thermometer,
+  Droplets
+} from "lucide-react";
+import { MetricChart } from "./metric-chart";
+import { HANOI_DISTRICTS } from "../lib/hanoi-districts";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5000";
@@ -42,6 +54,7 @@ type DeviceRecord = {
   owner: DeviceOwner | null;
   pairedAt?: string | null;
   lastSeenAt?: string | null;
+  district?: string | null;
 };
 
 type WeatherReading = {
@@ -53,6 +66,32 @@ type WeatherReading = {
   rain: number;
   windSpeed: number;
   timestamp?: string;
+};
+
+type DistrictAnalyticsPoint = {
+  label: string;
+  temperature: number | null;
+  humidity: number | null;
+  windSpeed: number | null;
+  rain: number | null;
+};
+
+type DistrictAnalyticsResponse = {
+  district: string;
+  period: "day" | "month" | "year";
+  availableDistricts: string[];
+  deviceCount: number;
+  onlineDeviceCount: number;
+  readingsCount: number;
+  current: {
+    temperature: number | null;
+    humidity: number | null;
+    windSpeed: number | null;
+    rain: number | null;
+    pressure: number | null;
+    lastReadingAt: string | null;
+  };
+  timeline: DistrictAnalyticsPoint[];
 };
 
 function getStoredUser() {
@@ -77,6 +116,11 @@ export default function AdminDashboard() {
   const [refreshing, setRefreshing] = useState(false);
   const [userActionLoadingId, setUserActionLoadingId] = useState("");
   const [deviceActionLoadingId, setDeviceActionLoadingId] = useState("");
+  const [selectedDistrict, setSelectedDistrict] = useState("all");
+  const [selectedPeriod, setSelectedPeriod] = useState<"day" | "month" | "year">("day");
+  const [districtAnalytics, setDistrictAnalytics] =
+    useState<DistrictAnalyticsResponse | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -106,6 +150,14 @@ export default function AdminDashboard() {
   }, [token]);
 
   useEffect(() => {
+    if (!token) {
+      return;
+    }
+
+    void fetchDistrictAnalytics(token, selectedDistrict, selectedPeriod);
+  }, [token, selectedDistrict, selectedPeriod]);
+
+  useEffect(() => {
     if (!token || !selectedDeviceId) {
       setSelectedReading(null);
       setIsDeviceModalOpen(false);
@@ -131,7 +183,11 @@ export default function AdminDashboard() {
     }
 
     const intervalId = window.setInterval(() => {
-      void Promise.all([fetchUsers(token), fetchDevices(token)]).catch(
+      void Promise.all([
+        fetchUsers(token),
+        fetchDevices(token),
+        fetchDistrictAnalytics(token, selectedDistrict, selectedPeriod)
+      ]).catch(
         (refreshError) => {
           const message =
             refreshError instanceof Error
@@ -143,7 +199,7 @@ export default function AdminDashboard() {
     }, 5000);
 
     return () => window.clearInterval(intervalId);
-  }, [token]);
+  }, [selectedDistrict, selectedPeriod, token]);
 
   async function fetchUsers(authToken = token) {
     const response = await fetch(`${API_BASE_URL}/api/auth/users`, {
@@ -190,6 +246,46 @@ export default function AdminDashboard() {
     }
   }
 
+  async function fetchDistrictAnalytics(
+    authToken = token,
+    district = selectedDistrict,
+    period = selectedPeriod
+  ) {
+    setAnalyticsLoading(true);
+
+    try {
+      const query = new URLSearchParams({
+        district,
+        period
+      });
+      const response = await fetch(
+        `${API_BASE_URL}/api/devices/district-analytics?${query.toString()}`,
+        {
+          headers: {
+            Authorization: `Bearer ${authToken}`
+          },
+          cache: "no-store"
+        }
+      );
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.message || "Failed to load district analytics");
+      }
+
+      setDistrictAnalytics(result as DistrictAnalyticsResponse);
+      setError("");
+    } catch (analyticsError) {
+      const message =
+        analyticsError instanceof Error
+          ? analyticsError.message
+          : "Failed to load district analytics";
+      setError(message);
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  }
+
   async function fetchLatestReading(deviceId: string, authToken = token) {
     const response = await fetch(
       `${API_BASE_URL}/api/readings?deviceId=${deviceId}&limit=1`,
@@ -223,7 +319,11 @@ export default function AdminDashboard() {
     setError("");
 
     try {
-      await Promise.all([fetchUsers(token), fetchDevices(token)]);
+      await Promise.all([
+        fetchUsers(token),
+        fetchDevices(token),
+        fetchDistrictAnalytics(token, selectedDistrict, selectedPeriod)
+      ]);
     } catch (refreshError) {
       const message =
         refreshError instanceof Error
@@ -254,6 +354,15 @@ export default function AdminDashboard() {
   const onlineUsers = managedUsers.filter((user) => user.online).length;
   const onlineDevices = devices.filter(isDeviceOnline);
   const currentAdminName = currentUser.email.split("@")[0];
+  const districtSummary = districtAnalytics?.current || null;
+  const districtTimeline = districtAnalytics?.timeline || [];
+  const districtChartData = districtTimeline.map((point) => ({
+    label: point.label,
+    temperature: point.temperature ?? 0,
+    humidity: point.humidity ?? 0,
+    windSpeed: point.windSpeed ?? 0,
+    rain: point.rain ?? 0
+  }));
 
   function handleSelectDevice(deviceId: string) {
     setSelectedDeviceId(deviceId);
@@ -518,6 +627,9 @@ export default function AdminDashboard() {
                           <div className="text-sm text-slate-500">
                             {device.owner?.email || "Not paired"}
                           </div>
+                          <div className="text-xs text-slate-400">
+                            District: {device.district || "Not assigned"}
+                          </div>
                         </div>
                         <span
                           className={`rounded-full px-3 py-1 text-xs font-bold ${
@@ -561,6 +673,178 @@ export default function AdminDashboard() {
           </div>
         </section>
 
+        <section className="mb-8 rounded-[2rem] bg-white p-8 shadow-sm">
+          <div className="mb-6 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+            <div>
+              <h2 className="text-xl font-black text-slate-900">District Analytics</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Review device activity and sensor trends by Hanoi district and time range.
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <label className="min-w-[220px]">
+                <span className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-slate-400">
+                  <MapPinned size={14} />
+                  District
+                </span>
+                <select
+                  value={selectedDistrict}
+                  onChange={(event) => setSelectedDistrict(event.target.value)}
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-blue-400"
+                >
+                  <option value="all">All districts</option>
+                  {HANOI_DISTRICTS.map((district) => (
+                    <option key={district} value={district}>
+                      {district}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <div>
+                <span className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-slate-400">
+                  <CalendarRange size={14} />
+                  Period
+                </span>
+                <div className="flex items-center gap-2">
+                  {(["day", "month", "year"] as const).map((period) => (
+                    <button
+                      key={period}
+                      type="button"
+                      onClick={() => setSelectedPeriod(period)}
+                      className={`rounded-2xl px-4 py-3 text-sm font-bold capitalize transition ${
+                        selectedPeriod === period
+                          ? "bg-blue-600 text-white"
+                          : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                      }`}
+                    >
+                      {period}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {[
+              {
+                label: "Devices in district",
+                value: districtAnalytics?.deviceCount ?? 0,
+                Icon: Cpu,
+                color: "text-blue-600",
+                bg: "bg-blue-50"
+              },
+              {
+                label: "Online devices",
+                value: districtAnalytics?.onlineDeviceCount ?? 0,
+                Icon: ActivitySquare,
+                color: "text-emerald-600",
+                bg: "bg-emerald-50"
+              },
+              {
+                label: "Avg temperature",
+                value:
+                  districtSummary?.temperature !== null &&
+                  districtSummary?.temperature !== undefined
+                    ? `${districtSummary.temperature.toFixed(1)} C`
+                    : "--",
+                Icon: Thermometer,
+                color: "text-orange-600",
+                bg: "bg-orange-50"
+              },
+              {
+                label: "Avg humidity",
+                value:
+                  districtSummary?.humidity !== null &&
+                  districtSummary?.humidity !== undefined
+                    ? `${districtSummary.humidity.toFixed(1)}%`
+                    : "--",
+                Icon: Droplets,
+                color: "text-cyan-600",
+                bg: "bg-cyan-50"
+              }
+            ].map((item) => (
+              <div key={item.label} className="rounded-[1.5rem] border border-slate-200 p-4">
+                <div className={`mb-4 inline-flex rounded-xl p-2.5 ${item.bg} ${item.color}`}>
+                  <item.Icon size={18} />
+                </div>
+                <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                  {item.label}
+                </div>
+                <div className="mt-2 text-2xl font-black text-slate-900">{item.value}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mb-4 flex items-center justify-between gap-4 text-sm text-slate-500">
+            <div>
+              Current district:{" "}
+              <span className="font-semibold text-slate-700">
+                {selectedDistrict === "all" ? "All districts" : selectedDistrict}
+              </span>
+            </div>
+            <div>
+              Last reading:{" "}
+              <span className="font-semibold text-slate-700">
+                {districtSummary?.lastReadingAt
+                  ? new Date(districtSummary.lastReadingAt).toLocaleString("en-GB")
+                  : "--"}
+              </span>
+            </div>
+          </div>
+
+          {analyticsLoading && !districtAnalytics ? (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-500">
+              Loading district analytics...
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+              <div className="rounded-[1.5rem] border border-slate-200 p-4">
+                <MetricChart
+                  title="Temperature by Period"
+                  data={districtChartData}
+                  dataKey="temperature"
+                  stroke="#2563eb"
+                  gradientId="adminDistrictTemperature"
+                  chartHeight={260}
+                />
+              </div>
+              <div className="rounded-[1.5rem] border border-slate-200 p-4">
+                <MetricChart
+                  title="Humidity by Period"
+                  data={districtChartData}
+                  dataKey="humidity"
+                  stroke="#0ea5e9"
+                  gradientId="adminDistrictHumidity"
+                  chartHeight={260}
+                />
+              </div>
+              <div className="rounded-[1.5rem] border border-slate-200 p-4">
+                <MetricChart
+                  title="Wind Speed by Period"
+                  data={districtChartData}
+                  dataKey="windSpeed"
+                  stroke="#06b6d4"
+                  gradientId="adminDistrictWind"
+                  chartHeight={260}
+                />
+              </div>
+              <div className="rounded-[1.5rem] border border-slate-200 p-4">
+                <MetricChart
+                  title="Wetness by Period"
+                  data={districtChartData}
+                  dataKey="rain"
+                  stroke="#6366f1"
+                  gradientId="adminDistrictRain"
+                  chartHeight={260}
+                />
+              </div>
+            </div>
+          )}
+        </section>
+
         {isDeviceModalOpen ? (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
             <div className="w-full max-w-2xl rounded-[2rem] bg-white p-8 shadow-2xl">
@@ -595,6 +879,11 @@ export default function AdminDashboard() {
                       Device
                     </div>
                     <div className="font-bold text-slate-900">{selectedReading.deviceId}</div>
+                    <div className="mt-1 text-xs text-slate-500">
+                      District:{" "}
+                      {devices.find((device) => device.deviceId === selectedReading.deviceId)
+                        ?.district || "Not assigned"}
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="rounded-2xl border border-slate-200 px-4 py-4">

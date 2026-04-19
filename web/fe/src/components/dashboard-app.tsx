@@ -2,7 +2,8 @@
 
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Responsive, WidthProvider, type Layouts } from "react-grid-layout/legacy";
+import { Responsive, WidthProvider } from "react-grid-layout/legacy";
+import type { ResponsiveLayouts } from "react-grid-layout/legacy";
 import {
   Thermometer,
   Droplets,
@@ -26,6 +27,7 @@ import {
 } from "recharts";
 import { AuthCard } from "./auth-card";
 import { MetricChart } from "./metric-chart";
+import { HANOI_DISTRICTS } from "../lib/hanoi-districts";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5000";
@@ -41,7 +43,7 @@ const BLE_STATUS_UUID = "6c123450-52d1-4f36-8a87-2d7e4f510105";
 const DASHBOARD_LAYOUT_STORAGE_KEY = "weather-dashboard-grid-layouts-v1";
 const ResponsiveGridLayout = WidthProvider(Responsive);
 
-const DEFAULT_DASHBOARD_LAYOUTS: Layouts = {
+const DEFAULT_DASHBOARD_LAYOUTS: ResponsiveLayouts = {
   lg: [
     { i: "temperature", x: 0, y: 0, w: 3, h: 4, minW: 2, minH: 3 },
     { i: "humidity", x: 3, y: 0, w: 3, h: 4, minW: 2, minH: 3 },
@@ -124,6 +126,7 @@ type DeviceRecord = {
   owner: DeviceOwner | null;
   pairedAt?: string | null;
   lastSeenAt?: string | null;
+  district?: string | null;
 };
 
 type DevicesResponse = {
@@ -216,6 +219,7 @@ export default function DashboardApp({
   const [deviceLoading, setDeviceLoading] = useState(false);
   const [deviceActionLoading, setDeviceActionLoading] = useState(false);
   const [selectedDeviceId, setSelectedDeviceId] = useState(DEFAULT_DEVICE_ID);
+  const [selectedDistrict, setSelectedDistrict] = useState("");
   const [readings, setReadings] = useState<WeatherReading[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -233,12 +237,11 @@ export default function DashboardApp({
   const [alertSavingKey, setAlertSavingKey] = useState<string>("");
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const [isRuleModalOpen, setIsRuleModalOpen] = useState(false);
-  const [dashboardLayouts, setDashboardLayouts] = useState<Layouts>(DEFAULT_DASHBOARD_LAYOUTS);
-  const bleDeviceRef = React.useRef<BluetoothDevice | null>(null);
-  const bleReadingCharacteristicRef =
-    React.useRef<BluetoothRemoteGATTCharacteristic | null>(null);
-  const bleControlCharacteristicRef =
-    React.useRef<BluetoothRemoteGATTCharacteristic | null>(null);
+  const [dashboardLayouts, setDashboardLayouts] =
+    useState<ResponsiveLayouts>(DEFAULT_DASHBOARD_LAYOUTS);
+  const bleDeviceRef = React.useRef<any>(null);
+  const bleReadingCharacteristicRef = React.useRef<any>(null);
+  const bleControlCharacteristicRef = React.useRef<any>(null);
   const bleNotificationHandlerRef = React.useRef<((event: Event) => void) | null>(null);
   const bleDisconnectHandlerRef = React.useRef<((event: Event) => void) | null>(null);
 
@@ -334,6 +337,11 @@ export default function DashboardApp({
   }, [claimStatus]);
 
   useEffect(() => {
+    const nextDevice = devices.find((device) => device.deviceId === selectedDeviceId) || null;
+    setSelectedDistrict(nextDevice?.district || "");
+  }, [devices, selectedDeviceId]);
+
+  useEffect(() => {
     window.localStorage.setItem(
       DASHBOARD_LAYOUT_STORAGE_KEY,
       JSON.stringify(dashboardLayouts)
@@ -358,7 +366,11 @@ export default function DashboardApp({
     return result as AuthResponse;
   }
 
-  async function claimDevice(authToken: string, deviceId = selectedDeviceId) {
+  async function claimDevice(
+    authToken: string,
+    deviceId = selectedDeviceId,
+    district = selectedDistrict
+  ) {
     const response = await fetch(`${API_BASE_URL}/api/devices/claim`, {
       method: "POST",
       headers: {
@@ -366,7 +378,8 @@ export default function DashboardApp({
         Authorization: `Bearer ${authToken}`
       },
       body: JSON.stringify({
-        deviceId
+        deviceId,
+        district
       })
     });
 
@@ -861,7 +874,7 @@ export default function DashboardApp({
       const device =
         reuseKnownDevice && bleDeviceRef.current
           ? bleDeviceRef.current
-          : await navigator.bluetooth.requestDevice({
+          : await (navigator as any).bluetooth.requestDevice({
               filters: [{ name: BLE_DEVICE_NAME }],
               optionalServices: [BLE_SERVICE_UUID]
             });
@@ -901,7 +914,7 @@ export default function DashboardApp({
 
       const notificationHandler = async (event: Event) => {
         try {
-          const target = event.target as BluetoothRemoteGATTCharacteristic;
+          const target = event.target as any;
           const value = target.value;
           if (!value) {
             return;
@@ -979,11 +992,16 @@ export default function DashboardApp({
       return;
     }
 
+    if (!selectedDistrict) {
+      setError("Please choose a Hanoi district before pairing this device.");
+      return;
+    }
+
     setDeviceActionLoading(true);
     setError("");
 
     try {
-      await claimDevice(token, selectedDeviceId);
+      await claimDevice(token, selectedDeviceId, selectedDistrict);
       await fetchDevices(token);
       await connectBleBridge();
     } catch (pairError) {
@@ -1294,6 +1312,24 @@ export default function DashboardApp({
                 </datalist>
               </label>
 
+              <label className="mt-4 block">
+                <span className="mb-2 block text-sm font-semibold text-slate-700">
+                  District
+                </span>
+                <select
+                  value={selectedDistrict}
+                  onChange={(event) => setSelectedDistrict(event.target.value)}
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-blue-400"
+                >
+                  <option value="">Select a Hanoi district</option>
+                  {HANOI_DISTRICTS.map((district) => (
+                    <option key={district} value={district}>
+                      {district}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
               <div className="mt-4 rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
                 <div className="mb-1 font-semibold text-slate-700">BLE Status</div>
                 <div>{bleStatus}</div>
@@ -1304,10 +1340,14 @@ export default function DashboardApp({
             </div>
 
             <div className="flex flex-col gap-4 rounded-[1.5rem] border border-slate-200 p-4">
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
                   <div className="mb-1 font-semibold text-slate-700">Ownership</div>
                   <div>{isSelectedDeviceOwned ? "Paired" : "Not paired"}</div>
+                </div>
+                <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                  <div className="mb-1 font-semibold text-slate-700">District</div>
+                  <div>{selectedDistrict || "Not assigned"}</div>
                 </div>
                 <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
                   <div className="mb-1 font-semibold text-slate-700">Last Seen</div>
