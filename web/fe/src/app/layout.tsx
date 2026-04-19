@@ -27,7 +27,14 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="weather-app-shell min-h-full flex flex-col">
+        <div className="pointer-events-none fixed inset-0 overflow-hidden">
+          <div className="weather-cloud-layer" />
+          <div className="weather-glow weather-glow-top" />
+          <div className="weather-glow weather-glow-bottom" />
+        </div>
+        <div className="relative z-10 flex min-h-full flex-col">{children}</div>
+      </body>
     </html>
   );
 }

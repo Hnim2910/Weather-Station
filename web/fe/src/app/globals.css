@@ -3,3 +3,47 @@
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
+
+html,
+body {
+  min-height: 100%;
+}
+
+body.weather-app-shell {
+  background: linear-gradient(to bottom, #d6eaf8, #b0d4f1);
+}
+
+.weather-cloud-layer {
+  position: absolute;
+  inset: 0;
+  opacity: 1;
+  background-image: url("/images/BG.jpg");
+  background-repeat: no-repeat;
+  background-size: cover;
+  background-position: center center;
+  filter: contrast(1.08) saturate(1.02) brightness(0.96);
+}
+
+.weather-glow {
+  position: absolute;
+  border-radius: 9999px;
+  pointer-events: none;
+}
+
+.weather-glow-top {
+  top: -10%;
+  left: -10%;
+  width: 40%;
+  height: 40%;
+  background: rgb(219 234 254 / 0.3);
+  filter: blur(120px);
+}
+
+.weather-glow-bottom {
+  right: -10%;
+  bottom: -10%;
+  width: 30%;
+  height: 40%;
+  background: rgb(224 231 255 / 0.3);
+  filter: blur(100px);
+}
