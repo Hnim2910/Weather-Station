@@ -15,22 +15,26 @@ export function MetricChart({
   data,
   dataKey,
   stroke,
-  gradientId
+  gradientId,
+  className = "",
+  chartHeight = 260
 }: {
   title: string;
   data: Array<Record<string, string | number>>;
   dataKey: string;
   stroke: string;
   gradientId: string;
+  className?: string;
+  chartHeight?: number | string;
 }) {
   return (
-    <div className="min-w-0 rounded-[2rem] bg-white p-8 shadow-sm">
-      <div className="mb-6">
+    <div className={`min-w-0 rounded-[2rem] bg-white p-8 shadow-sm h-full ${className}`}>
+      <div className="dashboard-widget-handle mb-6 cursor-move">
         <h3 className="text-xl font-black text-slate-900">{title}</h3>
       </div>
 
-      <div className="h-[260px] w-full min-w-0">
-        <ResponsiveContainer width="100%" height={260}>
+      <div className="w-full min-w-0" style={{ height: chartHeight }}>
+        <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={data}>
             <defs>
               <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">

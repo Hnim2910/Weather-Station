@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Responsive, WidthProvider, type Layouts } from "react-grid-layout/legacy";
 import {
   Thermometer,
   Droplets,
@@ -37,6 +38,41 @@ const BLE_INFO_UUID = "6c123450-52d1-4f36-8a87-2d7e4f510102";
 const BLE_READING_UUID = "6c123450-52d1-4f36-8a87-2d7e4f510103";
 const BLE_CONTROL_UUID = "6c123450-52d1-4f36-8a87-2d7e4f510104";
 const BLE_STATUS_UUID = "6c123450-52d1-4f36-8a87-2d7e4f510105";
+const DASHBOARD_LAYOUT_STORAGE_KEY = "weather-dashboard-grid-layouts-v1";
+const ResponsiveGridLayout = WidthProvider(Responsive);
+
+const DEFAULT_DASHBOARD_LAYOUTS: Layouts = {
+  lg: [
+    { i: "temperature", x: 0, y: 0, w: 3, h: 4, minW: 2, minH: 3 },
+    { i: "humidity", x: 3, y: 0, w: 3, h: 4, minW: 2, minH: 3 },
+    { i: "wind", x: 6, y: 0, w: 3, h: 4, minW: 2, minH: 3 },
+    { i: "rain", x: 9, y: 0, w: 3, h: 4, minW: 2, minH: 3 },
+    { i: "temperatureTrend", x: 0, y: 4, w: 12, h: 8, minW: 6, minH: 5 },
+    { i: "humidityTrend", x: 0, y: 12, w: 4, h: 6, minW: 3, minH: 4 },
+    { i: "windTrend", x: 4, y: 12, w: 4, h: 6, minW: 3, minH: 4 },
+    { i: "wetnessTrend", x: 8, y: 12, w: 4, h: 6, minW: 3, minH: 4 }
+  ],
+  md: [
+    { i: "temperature", x: 0, y: 0, w: 3, h: 4, minW: 2, minH: 3 },
+    { i: "humidity", x: 3, y: 0, w: 3, h: 4, minW: 2, minH: 3 },
+    { i: "wind", x: 6, y: 0, w: 3, h: 4, minW: 2, minH: 3 },
+    { i: "rain", x: 9, y: 0, w: 3, h: 4, minW: 2, minH: 3 },
+    { i: "temperatureTrend", x: 0, y: 4, w: 12, h: 8, minW: 6, minH: 5 },
+    { i: "humidityTrend", x: 0, y: 12, w: 4, h: 6, minW: 3, minH: 4 },
+    { i: "windTrend", x: 4, y: 12, w: 4, h: 6, minW: 3, minH: 4 },
+    { i: "wetnessTrend", x: 8, y: 12, w: 4, h: 6, minW: 3, minH: 4 }
+  ],
+  sm: [
+    { i: "temperature", x: 0, y: 0, w: 2, h: 4, minW: 1, minH: 3 },
+    { i: "humidity", x: 0, y: 4, w: 2, h: 4, minW: 1, minH: 3 },
+    { i: "wind", x: 0, y: 8, w: 2, h: 4, minW: 1, minH: 3 },
+    { i: "rain", x: 0, y: 12, w: 2, h: 4, minW: 1, minH: 3 },
+    { i: "temperatureTrend", x: 0, y: 16, w: 2, h: 8, minW: 2, minH: 5 },
+    { i: "humidityTrend", x: 0, y: 24, w: 2, h: 6, minW: 2, minH: 4 },
+    { i: "windTrend", x: 0, y: 30, w: 2, h: 6, minW: 2, minH: 4 },
+    { i: "wetnessTrend", x: 0, y: 36, w: 2, h: 6, minW: 2, minH: 4 }
+  ]
+};
 
 function getHomePathForRole(role?: "admin" | "user") {
   return role === "admin" ? "/admin" : "/user";
@@ -197,6 +233,7 @@ export default function DashboardApp({
   const [alertSavingKey, setAlertSavingKey] = useState<string>("");
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const [isRuleModalOpen, setIsRuleModalOpen] = useState(false);
+  const [dashboardLayouts, setDashboardLayouts] = useState<Layouts>(DEFAULT_DASHBOARD_LAYOUTS);
   const bleDeviceRef = React.useRef<BluetoothDevice | null>(null);
   const bleReadingCharacteristicRef =
     React.useRef<BluetoothRemoteGATTCharacteristic | null>(null);
@@ -204,6 +241,11 @@ export default function DashboardApp({
     React.useRef<BluetoothRemoteGATTCharacteristic | null>(null);
   const bleNotificationHandlerRef = React.useRef<((event: Event) => void) | null>(null);
   const bleDisconnectHandlerRef = React.useRef<((event: Event) => void) | null>(null);
+
+  useEffect(() => {
+    window.localStorage.removeItem(DASHBOARD_LAYOUT_STORAGE_KEY);
+    setDashboardLayouts(DEFAULT_DASHBOARD_LAYOUTS);
+  }, []);
 
   useEffect(() => {
     const storedToken = window.localStorage.getItem(TOKEN_STORAGE_KEY) || "";
@@ -290,6 +332,13 @@ export default function DashboardApp({
 
     return () => window.clearTimeout(timeoutId);
   }, [claimStatus]);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      DASHBOARD_LAYOUT_STORAGE_KEY,
+      JSON.stringify(dashboardLayouts)
+    );
+  }, [dashboardLayouts]);
 
   async function authRequest(endpoint: string, payload: object) {
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
@@ -962,6 +1011,84 @@ export default function DashboardApp({
   const isSelectedDeviceOwned = Boolean(selectedDevice?.owner);
   const notificationCount = alertHistory.length;
 
+  function renderMetricWidget(item: {
+    label: string;
+    value: string;
+    Icon: React.ComponentType<{ size?: number }>;
+    color: string;
+    bg: string;
+  }) {
+    return (
+      <div className="h-full rounded-[2rem] bg-white p-6 shadow-sm">
+        <div className="dashboard-widget-handle mb-5 flex cursor-move items-center justify-between">
+          <div className={`inline-flex rounded-2xl p-3 ${item.bg} ${item.color}`}>
+            <item.Icon size={22} />
+          </div>
+          <span className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-300">
+            Drag
+          </span>
+        </div>
+        <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.22em] text-slate-400">
+          {item.label}
+        </p>
+        <h2 className="text-3xl font-black text-slate-900">{item.value}</h2>
+      </div>
+    );
+  }
+
+  function renderTrendWidget() {
+    return (
+      <div className="h-full min-w-0 rounded-[2rem] bg-white p-8 shadow-sm">
+        <div className="dashboard-widget-handle mb-6 flex cursor-move items-center justify-between">
+          <h3 className="text-xl font-black text-slate-900">Temperature Trend</h3>
+          <span className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-300">
+            Drag
+          </span>
+        </div>
+
+        <div className="h-[calc(100%-3.5rem)] w-full min-w-0">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={chartData}>
+              <defs>
+                <linearGradient
+                  id="colorTemperature"
+                  x1="0"
+                  y1="0"
+                  x2="0"
+                  y2="1"
+                >
+                  <stop offset="5%" stopColor="#2563eb" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="#2563eb" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid
+                strokeDasharray="3 3"
+                vertical={false}
+                stroke="#e2e8f0"
+              />
+              <XAxis
+                dataKey="time"
+                axisLine={false}
+                tickLine={false}
+                tick={{ fill: "#64748b", fontSize: 11 }}
+              />
+              <YAxis axisLine={false} tickLine={false} />
+              <Tooltip />
+              <Area
+                type="monotone"
+                dataKey="temperature"
+                stroke="#2563eb"
+                strokeWidth={3}
+                fillOpacity={1}
+                fill="url(#colorTemperature)"
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+    );
+  }
+
   if (!token || !currentUser) {
     if (pageKind !== "login") {
       return (
@@ -1236,128 +1363,88 @@ export default function DashboardApp({
 
         {latestReading ? (
           <>
-            <section className="mb-8 grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
-              {[
-                {
-                  label: "Temperature",
-                  value: `${latestReading.temperature.toFixed(1)} C`,
-                  Icon: Thermometer,
-                  color: "text-orange-500",
-                  bg: "bg-orange-50"
-                },
-                {
-                  label: "Humidity",
-                  value: `${latestReading.humidity.toFixed(1)}%`,
-                  Icon: Droplets,
-                  color: "text-blue-500",
-                  bg: "bg-blue-50"
-                },
-                {
-                  label: "Wind Speed",
-                  value: `${latestReading.windSpeed.toFixed(1)} m/s`,
-                  Icon: Wind,
-                  color: "text-cyan-500",
-                  bg: "bg-cyan-50"
-                },
-                {
-                  label: "Rain Sensor Wetness",
-                  value: `${latestReading.rain.toFixed(0)}%`,
-                  Icon: CloudRain,
-                  color: "text-indigo-500",
-                  bg: "bg-indigo-50"
-                }
-              ].map((item) => (
-                <div
-                  key={item.label}
-                  className="rounded-[2rem] bg-white p-6 shadow-sm transition hover:-translate-y-1"
-                >
-                  <div
-                    className={`mb-5 inline-flex rounded-2xl p-3 ${item.bg} ${item.color}`}
-                  >
-                    <item.Icon size={22} />
-                  </div>
-                  <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.22em] text-slate-400">
-                    {item.label}
-                  </p>
-                  <h2 className="text-3xl font-black text-slate-900">
-                    {item.value}
-                  </h2>
-                </div>
-              ))}
-            </section>
-
             <section className="mb-8">
-              <div className="min-w-0 rounded-[2rem] bg-white p-8 shadow-sm">
-                <div className="mb-6">
-                  <h3 className="text-xl font-black text-slate-900">
-                    Temperature Trend
-                  </h3>
+              <ResponsiveGridLayout
+                className="layout"
+                layouts={dashboardLayouts}
+                breakpoints={{ lg: 1200, md: 996, sm: 0 }}
+                cols={{ lg: 12, md: 12, sm: 2 }}
+                rowHeight={38}
+                margin={[24, 24]}
+                containerPadding={[0, 0]}
+                draggableHandle=".dashboard-widget-handle"
+                onLayoutChange={(_, allLayouts) => setDashboardLayouts(allLayouts)}
+              >
+                <div key="temperature">
+                  {renderMetricWidget({
+                    label: "Temperature",
+                    value: `${latestReading.temperature.toFixed(1)} C`,
+                    Icon: Thermometer,
+                    color: "text-orange-500",
+                    bg: "bg-orange-50"
+                  })}
                 </div>
-
-                <div className="h-[320px] w-full min-w-0">
-                  <ResponsiveContainer width="100%" height={320}>
-                    <AreaChart data={chartData}>
-                      <defs>
-                        <linearGradient
-                          id="colorTemperature"
-                          x1="0"
-                          y1="0"
-                          x2="0"
-                          y2="1"
-                        >
-                          <stop offset="5%" stopColor="#2563eb" stopOpacity={0.3} />
-                          <stop offset="95%" stopColor="#2563eb" stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid
-                        strokeDasharray="3 3"
-                        vertical={false}
-                        stroke="#e2e8f0"
-                      />
-                      <XAxis
-                        dataKey="time"
-                        axisLine={false}
-                        tickLine={false}
-                        tick={{ fill: "#64748b", fontSize: 11 }}
-                      />
-                      <YAxis axisLine={false} tickLine={false} />
-                      <Tooltip />
-                      <Area
-                        type="monotone"
-                        dataKey="temperature"
-                        stroke="#2563eb"
-                        strokeWidth={3}
-                        fillOpacity={1}
-                        fill="url(#colorTemperature)"
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
+                <div key="humidity">
+                  {renderMetricWidget({
+                    label: "Humidity",
+                    value: `${latestReading.humidity.toFixed(1)}%`,
+                    Icon: Droplets,
+                    color: "text-blue-500",
+                    bg: "bg-blue-50"
+                  })}
                 </div>
-              </div>
-            </section>
-
-            <section className="mb-8 grid grid-cols-1 gap-6 xl:grid-cols-3">
-              <MetricChart
-                title="Humidity Trend"
-                data={chartData}
-                dataKey="humidity"
-                stroke="#0ea5e9"
-                gradientId="colorHumidity"
-              />
-              <MetricChart
-                title="Wind Speed Trend"
-                data={chartData}
-                dataKey="windSpeed"
-                stroke="#06b6d4"
-                gradientId="colorWindSpeed"
-              />
-              <MetricChart
-                title="Wetness Trend"
-                data={chartData}
-                dataKey="rain"
-                stroke="#6366f1"
-                gradientId="colorRain"
-              />
+                <div key="wind">
+                  {renderMetricWidget({
+                    label: "Wind Speed",
+                    value: `${latestReading.windSpeed.toFixed(1)} m/s`,
+                    Icon: Wind,
+                    color: "text-cyan-500",
+                    bg: "bg-cyan-50"
+                  })}
+                </div>
+                <div key="rain">
+                  {renderMetricWidget({
+                    label: "Rain Sensor Wetness",
+                    value: `${latestReading.rain.toFixed(0)}%`,
+                    Icon: CloudRain,
+                    color: "text-indigo-500",
+                    bg: "bg-indigo-50"
+                  })}
+                </div>
+                <div key="temperatureTrend" className="h-full">
+                  {renderTrendWidget()}
+                </div>
+                <div key="humidityTrend" className="h-full">
+                  <MetricChart
+                    title="Humidity Trend"
+                    data={chartData}
+                    dataKey="humidity"
+                    stroke="#0ea5e9"
+                    gradientId="colorHumidity"
+                    chartHeight="calc(100% - 3.5rem)"
+                  />
+                </div>
+                <div key="windTrend" className="h-full">
+                  <MetricChart
+                    title="Wind Speed Trend"
+                    data={chartData}
+                    dataKey="windSpeed"
+                    stroke="#06b6d4"
+                    gradientId="colorWindSpeed"
+                    chartHeight="calc(100% - 3.5rem)"
+                  />
+                </div>
+                <div key="wetnessTrend" className="h-full">
+                  <MetricChart
+                    title="Wetness Trend"
+                    data={chartData}
+                    dataKey="rain"
+                    stroke="#6366f1"
+                    gradientId="colorRain"
+                    chartHeight="calc(100% - 3.5rem)"
+                  />
+                </div>
+              </ResponsiveGridLayout>
             </section>
           </>
         ) : null}

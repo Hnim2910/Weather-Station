@@ -47,3 +47,15 @@ body.weather-app-shell {
   background: rgb(224 231 255 / 0.3);
   filter: blur(100px);
 }
+
+.react-grid-item > div {
+  height: 100%;
+}
+
+.dashboard-widget-handle {
+  user-select: none;
+}
+
+.react-resizable-handle {
+  opacity: 0.9;
+}
