@@ -1,8 +1,5 @@
 # Local Weather Station
 
-## Category
-IoT Web Application, Full Stack
-
 ## Introduction
 Local Weather Station is a smart weather monitoring system built with an ESP32 device, a Next.js web application, and a Node.js backend.  
 The system allows users to connect to a weather station through BLE, view live sensor data, manage device settings, and receive alert notifications.  
