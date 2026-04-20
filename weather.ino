@@ -15,7 +15,6 @@
 #define RAIN_AO 32
 #define RAIN_DO 2
 #define HALL_PIN 27
-#define DEVICE_ID "ws-001"
 
 // BLE bridge service for live readings.
 #define BLE_BRIDGE_SERVICE_UUID "6c123450-52d1-4f36-8a87-2d7e4f510101"
@@ -36,6 +35,8 @@ BLEServer* bleServer = nullptr;
 BLECharacteristic* bridgeInfoCharacteristic = nullptr;
 BLECharacteristic* bridgeReadingCharacteristic = nullptr;
 BLECharacteristic* bridgeStatusCharacteristic = nullptr;
+
+String deviceId;
 
 bool bmpReady = false;
 bool bleClientConnected = false;
@@ -64,6 +65,19 @@ void updateBridgeStatus(const String& statusMessage) {
       bridgeStatusCharacteristic->notify();
     }
   }
+}
+
+String buildDeviceId() {
+  uint64_t chipId = ESP.getEfuseMac();
+  char idBuffer[24];
+  snprintf(
+    idBuffer,
+    sizeof(idBuffer),
+    "ws-%04X%08X",
+    (uint16_t)(chipId >> 32),
+    (uint32_t)chipId
+  );
+  return String(idBuffer);
 }
 
 class WeatherBleServerCallbacks : public BLEServerCallbacks {
@@ -118,7 +132,8 @@ void startBleServices() {
     BLE_BRIDGE_INFO_UUID,
     BLECharacteristic::PROPERTY_READ
   );
-  bridgeInfoCharacteristic->setValue("{\"deviceId\":\"" DEVICE_ID "\",\"mode\":\"ble-bridge\"}");
+  String bridgeInfo = "{\"deviceId\":\"" + deviceId + "\",\"mode\":\"ble-bridge\"}";
+  bridgeInfoCharacteristic->setValue(bridgeInfo.c_str());
 
   bridgeReadingCharacteristic = bridgeService->createCharacteristic(
     BLE_BRIDGE_READING_UUID,
@@ -154,7 +169,7 @@ void startBleServices() {
 
 String buildPayload(float temperature, float humidity, float pressure, float rainPercent, float currentWindSpeed) {
   String payload = "{\"deviceId\":\"";
-  payload += DEVICE_ID;
+  payload += deviceId;
   payload += "\",\"temperature\":";
   payload += String(temperature, 1);
   payload += ",\"humidity\":";
@@ -202,6 +217,9 @@ void IRAM_ATTR countPulse() {
 void setup() {
   Serial.begin(115200);
   Wire.begin(SDA_PIN, SCL_PIN);
+  deviceId = buildDeviceId();
+  Serial.print("Device ID: ");
+  Serial.println(deviceId);
 
   startBleServices();
 
