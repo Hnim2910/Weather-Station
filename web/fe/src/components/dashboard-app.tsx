@@ -31,7 +31,7 @@ import { HANOI_DISTRICTS } from "../lib/hanoi-districts";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5000";
-const DEFAULT_DEVICE_ID = "ws-001";
+const DEFAULT_DEVICE_ID = "";
 const TOKEN_STORAGE_KEY = "weather-auth-token";
 const USER_STORAGE_KEY = "weather-auth-user";
 const BLE_DEVICE_NAME = "WS-Bridge";
@@ -123,10 +123,16 @@ type DeviceOwner = {
 type DeviceRecord = {
   _id?: string;
   deviceId: string;
+  deviceName?: string | null;
   owner: DeviceOwner | null;
   pairedAt?: string | null;
   lastSeenAt?: string | null;
   district?: string | null;
+};
+
+type DeviceProfileResponse = {
+  message: string;
+  data: DeviceRecord;
 };
 
 type DevicesResponse = {
@@ -214,11 +220,15 @@ export default function DashboardApp({
   const [authInfo, setAuthInfo] = useState("");
   const [resendLoading, setResendLoading] = useState(false);
   const [pendingVerificationEmail, setPendingVerificationEmail] = useState("");
+  const [resetToken, setResetToken] = useState("");
   const [claimStatus, setClaimStatus] = useState("");
   const [devices, setDevices] = useState<DeviceRecord[]>([]);
   const [deviceLoading, setDeviceLoading] = useState(false);
   const [deviceActionLoading, setDeviceActionLoading] = useState(false);
   const [selectedDeviceId, setSelectedDeviceId] = useState(DEFAULT_DEVICE_ID);
+  const [selectedDeviceName, setSelectedDeviceName] = useState("");
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [isEditingDeviceName, setIsEditingDeviceName] = useState(false);
   const [selectedDistrict, setSelectedDistrict] = useState("");
   const [readings, setReadings] = useState<WeatherReading[]>([]);
   const [loading, setLoading] = useState(true);
@@ -244,6 +254,10 @@ export default function DashboardApp({
   const bleControlCharacteristicRef = React.useRef<any>(null);
   const bleNotificationHandlerRef = React.useRef<((event: Event) => void) | null>(null);
   const bleDisconnectHandlerRef = React.useRef<((event: Event) => void) | null>(null);
+  const previousSelectedDeviceIdRef = React.useRef<string>("");
+  const bleManualDisconnectRef = React.useRef(false);
+  const bleReconnectTimeoutRef = React.useRef<number | null>(null);
+  const bleReconnectAttemptsRef = React.useRef(0);
 
   useEffect(() => {
     window.localStorage.removeItem(DASHBOARD_LAYOUT_STORAGE_KEY);
@@ -255,6 +269,7 @@ export default function DashboardApp({
     const storedUser = getStoredUser();
     const url = new URL(window.location.href);
     const verifyToken = url.searchParams.get("token");
+    const passwordResetToken = url.searchParams.get("resetToken");
 
     if (storedToken && storedUser) {
       setToken(storedToken);
@@ -266,6 +281,16 @@ export default function DashboardApp({
     if (verifyToken) {
       verifyEmailToken(verifyToken);
       url.searchParams.delete("token");
+    }
+
+    if (passwordResetToken) {
+      setResetToken(passwordResetToken);
+      setAuthMode("login");
+      setAuthInfo("Enter your new password to complete the reset.");
+      url.searchParams.delete("resetToken");
+    }
+
+    if (verifyToken || passwordResetToken) {
       window.history.replaceState({}, "", url.toString());
     }
   }, []);
@@ -316,10 +341,15 @@ export default function DashboardApp({
 
   useEffect(() => {
     return () => {
+      if (bleReconnectTimeoutRef.current) {
+        window.clearTimeout(bleReconnectTimeoutRef.current);
+        bleReconnectTimeoutRef.current = null;
+      }
       void disconnectBleSession({
         clearKnownDevice: true,
         clearDeviceId: true,
-        statusMessage: ""
+        statusMessage: "",
+        manual: true
       });
     };
   }, []);
@@ -338,8 +368,17 @@ export default function DashboardApp({
 
   useEffect(() => {
     const nextDevice = devices.find((device) => device.deviceId === selectedDeviceId) || null;
+    const selectedDeviceChanged =
+      previousSelectedDeviceIdRef.current !== selectedDeviceId;
+
+    previousSelectedDeviceIdRef.current = selectedDeviceId;
     setSelectedDistrict(nextDevice?.district || "");
-  }, [devices, selectedDeviceId]);
+
+    if (selectedDeviceChanged || !isEditingDeviceName) {
+      setSelectedDeviceName(nextDevice?.deviceName || nextDevice?.deviceId || "");
+      setIsEditingDeviceName(false);
+    }
+  }, [devices, selectedDeviceId, isEditingDeviceName]);
 
   useEffect(() => {
     window.localStorage.setItem(
@@ -369,18 +408,28 @@ export default function DashboardApp({
   async function claimDevice(
     authToken: string,
     deviceId = selectedDeviceId,
-    district = selectedDistrict
+    district = selectedDistrict,
+    deviceName = selectedDeviceName
   ) {
+    const payload: Record<string, string> = { deviceId };
+    const normalizedDistrict = district.trim();
+    const normalizedDeviceName = deviceName.trim();
+
+    if (normalizedDistrict) {
+      payload.district = normalizedDistrict;
+    }
+
+    if (normalizedDeviceName) {
+      payload.deviceName = normalizedDeviceName;
+    }
+
     const response = await fetch(`${API_BASE_URL}/api/devices/claim`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${authToken}`
       },
-      body: JSON.stringify({
-        deviceId,
-        district
-      })
+      body: JSON.stringify(payload)
     });
 
     const result = await response.json();
@@ -389,6 +438,31 @@ export default function DashboardApp({
     }
 
     setClaimStatus(`Device ${deviceId} paired successfully.`);
+  }
+
+  async function updateDeviceProfile(
+    authToken: string,
+    deviceId: string,
+    payload: {
+      deviceName?: string;
+      district?: string;
+    }
+  ) {
+    const response = await fetch(`${API_BASE_URL}/api/devices/${deviceId}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${authToken}`
+      },
+      body: JSON.stringify(payload)
+    });
+
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.message || "Failed to update device profile");
+    }
+
+    return result as DeviceProfileResponse;
   }
 
   async function unclaimDevice(authToken: string, deviceId: string) {
@@ -453,7 +527,7 @@ export default function DashboardApp({
   }
 
   async function verifyEmailToken(verifyToken: string) {
-    setAuthInfo("Dang xac thuc email...");
+    setAuthInfo("Verifying email...");
     setAuthError("");
 
     try {
@@ -466,7 +540,7 @@ export default function DashboardApp({
         throw new Error(result.message || "Khong the xac thuc email");
       }
 
-      setAuthInfo("Xac thuc email thanh cong. Ban co the dang nhap.");
+      setAuthInfo("Email verified successfully. You can now log in.");
       setAuthMode("login");
     } catch (verifyError) {
       const message =
@@ -495,7 +569,7 @@ export default function DashboardApp({
         throw new Error(result.message || "Khong the gui lai email xac thuc");
       }
 
-      setAuthInfo("Da gui lai email xac thuc. Hay kiem tra hop thu cua ban.");
+      setAuthInfo("Verification email sent. Please check your inbox.");
     } catch (resendError) {
       const message =
         resendError instanceof Error
@@ -504,6 +578,75 @@ export default function DashboardApp({
       setAuthError(message);
     } finally {
       setResendLoading(false);
+    }
+  }
+
+  async function forgotPassword(email: string) {
+    if (!email) {
+      setAuthError("Enter your email address first.");
+      return;
+    }
+
+    setAuthLoading(true);
+    setAuthError("");
+    setAuthInfo("");
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/forgot-password`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ email })
+      });
+
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.message || "Failed to send password reset email");
+      }
+
+      setAuthInfo(result.message);
+    } catch (forgotPasswordError) {
+      const message =
+        forgotPasswordError instanceof Error
+          ? forgotPasswordError.message
+          : "Failed to send password reset email";
+      setAuthError(message);
+    } finally {
+      setAuthLoading(false);
+    }
+  }
+
+  async function resetPassword(payload: { token: string; password: string }) {
+    setAuthLoading(true);
+    setAuthError("");
+    setAuthInfo("");
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/reset-password`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.message || "Failed to reset password");
+      }
+
+      setResetToken("");
+      setAuthMode("login");
+      setAuthInfo("Password reset successfully. You can now log in.");
+    } catch (resetPasswordError) {
+      const message =
+        resetPasswordError instanceof Error
+          ? resetPasswordError.message
+          : "Failed to reset password";
+      setAuthError(message);
+    } finally {
+      setAuthLoading(false);
     }
   }
 
@@ -724,12 +867,20 @@ export default function DashboardApp({
   async function disconnectBleSession({
     clearKnownDevice = false,
     clearDeviceId = false,
-    statusMessage = "BLE not connected"
+    statusMessage = "BLE not connected",
+    manual = true
   }: {
     clearKnownDevice?: boolean;
     clearDeviceId?: boolean;
     statusMessage?: string;
+    manual?: boolean;
   } = {}) {
+    bleManualDisconnectRef.current = manual;
+    if (bleReconnectTimeoutRef.current) {
+      window.clearTimeout(bleReconnectTimeoutRef.current);
+      bleReconnectTimeoutRef.current = null;
+    }
+
     const readingCharacteristic = bleReadingCharacteristicRef.current;
     const controlCharacteristic = bleControlCharacteristicRef.current;
     const device = bleDeviceRef.current;
@@ -774,6 +925,9 @@ export default function DashboardApp({
     bleControlCharacteristicRef.current = null;
     bleNotificationHandlerRef.current = null;
     bleDisconnectHandlerRef.current = null;
+    if (manual) {
+      bleReconnectAttemptsRef.current = 0;
+    }
 
     if (clearKnownDevice) {
       bleDeviceRef.current = null;
@@ -785,6 +939,30 @@ export default function DashboardApp({
 
     setBleConnected(false);
     setBleStatus(statusMessage);
+  }
+
+  function scheduleBleReconnect() {
+    if (!bleDeviceRef.current || bleManualDisconnectRef.current) {
+      return;
+    }
+
+    if (bleReconnectAttemptsRef.current >= 3) {
+      setBleStatus("BLE disconnected. Reconnect attempts failed.");
+      return;
+    }
+
+    if (bleReconnectTimeoutRef.current) {
+      window.clearTimeout(bleReconnectTimeoutRef.current);
+    }
+
+    const nextAttempt = bleReconnectAttemptsRef.current + 1;
+    const delayMs = Math.min(1500 * nextAttempt, 5000);
+    setBleStatus(`BLE disconnected. Reconnecting (${nextAttempt}/3)...`);
+    bleReconnectTimeoutRef.current = window.setTimeout(() => {
+      bleReconnectTimeoutRef.current = null;
+      bleReconnectAttemptsRef.current = nextAttempt;
+      void connectBleBridge(true, true);
+    }, delayMs);
   }
 
   async function handleUnpairSelectedDevice() {
@@ -799,7 +977,8 @@ export default function DashboardApp({
       await disconnectBleSession({
         clearKnownDevice: true,
         clearDeviceId: true,
-        statusMessage: "BLE disconnected"
+        statusMessage: "BLE disconnected",
+        manual: true
       });
       await unclaimDevice(token, selectedDeviceId);
       setReadings([]);
@@ -813,11 +992,39 @@ export default function DashboardApp({
     }
   }
 
+  async function handleSaveDeviceProfile() {
+    if (!token || !selectedDeviceId) {
+      return;
+    }
+
+    setProfileSaving(true);
+    setError("");
+
+    try {
+      await updateDeviceProfile(token, selectedDeviceId, {
+        deviceName: selectedDeviceName,
+        district: selectedDistrict
+      });
+      await fetchDevices(token);
+      setIsEditingDeviceName(false);
+      setClaimStatus(`Device ${selectedDeviceId} updated successfully.`);
+    } catch (profileError) {
+      const message =
+        profileError instanceof Error
+          ? profileError.message
+          : "Failed to update device profile";
+      setError(message);
+    } finally {
+      setProfileSaving(false);
+    }
+  }
+
   function handleLogout() {
     void disconnectBleSession({
       clearKnownDevice: true,
       clearDeviceId: true,
-      statusMessage: "BLE disconnected"
+      statusMessage: "BLE disconnected",
+      manual: true
     });
     window.localStorage.removeItem(TOKEN_STORAGE_KEY);
     window.localStorage.removeItem(USER_STORAGE_KEY);
@@ -851,24 +1058,30 @@ export default function DashboardApp({
     }
   }
 
-  async function connectBleBridge(reuseKnownDevice = false) {
+  async function connectBleBridge(reuseKnownDevice = false, isAutoReconnect = false) {
     if (!("bluetooth" in navigator)) {
       setBleStatus("This browser does not support Web Bluetooth");
-      return;
+      return null;
     }
 
     setBleBusy(true);
+    bleManualDisconnectRef.current = false;
     setBleStatus(
-      reuseKnownDevice && bleDeviceRef.current
+      isAutoReconnect
+        ? "BLE disconnected. Reconnecting..."
+        : reuseKnownDevice && bleDeviceRef.current
         ? "Reconnecting BLE..."
         : "Searching for BLE device..."
     );
+
+    let resolvedDeviceId = "";
 
     try {
       await disconnectBleSession({
         clearKnownDevice: false,
         clearDeviceId: false,
-        statusMessage: ""
+        statusMessage: "",
+        manual: false
       });
 
       const device =
@@ -897,8 +1110,10 @@ export default function DashboardApp({
         const infoText = decoder.decode(infoValue);
         const info = JSON.parse(infoText) as { deviceId?: string };
         if (info.deviceId) {
+          resolvedDeviceId = info.deviceId;
           setBleDeviceId(info.deviceId);
           setSelectedDeviceId(info.deviceId);
+          setSelectedDeviceName((previous) => previous || info.deviceId || "");
         }
       } catch {
         setBleDeviceId("");
@@ -958,7 +1173,7 @@ export default function DashboardApp({
         bleNotificationHandlerRef.current = null;
         bleDisconnectHandlerRef.current = null;
         setBleConnected(false);
-        setBleStatus("BLE disconnected. Press Reconnect to connect again.");
+        scheduleBleReconnect();
       };
 
       bleDisconnectHandlerRef.current = disconnectHandler;
@@ -967,33 +1182,36 @@ export default function DashboardApp({
       const encoder = new TextEncoder();
       await controlCharacteristic.writeValue(encoder.encode("START"));
       setBleConnected(true);
+      bleReconnectAttemptsRef.current = 0;
 
       try {
         const statusValue = await statusCharacteristic.readValue();
         const statusText = decoder.decode(statusValue);
         setBleStatus(
-          `Paired ${device.name || BLE_DEVICE_NAME}. STATUS: ${statusText || "STREAMING"}`
+          `Connected to ${device.name || BLE_DEVICE_NAME}. STATUS: ${statusText || "STREAMING"}`
         );
       } catch {
-        setBleStatus(`Paired ${device.name || BLE_DEVICE_NAME}`);
+        setBleStatus(`Connected to ${device.name || BLE_DEVICE_NAME}`);
       }
+      return resolvedDeviceId || bleDeviceRef.current?.id || null;
     } catch (bleError) {
       const message =
         bleError instanceof Error ? bleError.message : "Loi BLE khong xac dinh";
       setBleConnected(false);
-      setBleStatus(`BLE error: ${message}`);
+      if (isAutoReconnect) {
+        setBleStatus(`BLE reconnect failed: ${message}`);
+        scheduleBleReconnect();
+      } else {
+        setBleStatus(`BLE error: ${message}`);
+      }
+      return null;
     } finally {
       setBleBusy(false);
     }
   }
 
   async function handlePairDeviceFlow() {
-    if (!token || !selectedDeviceId) {
-      return;
-    }
-
-    if (!selectedDistrict) {
-      setError("Please choose a Hanoi district before pairing this device.");
+    if (!token) {
       return;
     }
 
@@ -1001,9 +1219,17 @@ export default function DashboardApp({
     setError("");
 
     try {
-      await claimDevice(token, selectedDeviceId, selectedDistrict);
+      const detectedDeviceId = await connectBleBridge();
+      const finalDeviceId = detectedDeviceId || selectedDeviceId;
+
+      if (!finalDeviceId) {
+        throw new Error("Failed to read device ID from BLE bridge");
+      }
+
+      setSelectedDeviceId(finalDeviceId);
+      await claimDevice(token, finalDeviceId);
+      setSelectedDeviceName((previous) => previous || finalDeviceId);
       await fetchDevices(token);
-      await connectBleBridge();
     } catch (pairError) {
       const message =
         pairError instanceof Error ? pairError.message : "Khong the pair thiet bi";
@@ -1020,14 +1246,41 @@ export default function DashboardApp({
     }
 
     setError("");
-    await connectBleBridge(true);
+    const reconnectedDeviceId = await connectBleBridge(true);
+
+    if (!reconnectedDeviceId) {
+      await connectBleBridge(false);
+    }
   }
 
   const latestReading = readings[0];
   const chartData = buildChartData(readings);
   const selectedDevice = devices.find((device) => device.deviceId === selectedDeviceId) || null;
-  const isSelectedDeviceOwned = Boolean(selectedDevice?.owner);
+  const selectedDeviceOwnerId =
+    selectedDevice?.owner?._id || selectedDevice?.owner?.id || null;
+  const isSelectedDeviceOwnedByCurrentUser = Boolean(
+    currentUser && selectedDeviceOwnerId && selectedDeviceOwnerId === currentUser.id
+  );
+  const selectedDeviceDisplayName =
+    selectedDevice?.deviceName || selectedDeviceName || selectedDeviceId || "--";
+  const normalizedSelectedDeviceName = selectedDeviceName.trim();
+  const persistedDeviceName =
+    (selectedDevice?.deviceName || selectedDevice?.deviceId || "").trim();
+  const persistedDistrict = selectedDevice?.district || "";
+  const hasPendingProfileChanges =
+    Boolean(selectedDeviceId) &&
+    isSelectedDeviceOwnedByCurrentUser &&
+    ((normalizedSelectedDeviceName &&
+      normalizedSelectedDeviceName !== persistedDeviceName) ||
+      selectedDistrict !== persistedDistrict);
   const notificationCount = alertHistory.length;
+  const primaryDeviceActionLabel = deviceActionLoading || bleBusy
+    ? "Working..."
+    : isSelectedDeviceOwnedByCurrentUser
+      ? bleConnected
+        ? "Connected"
+        : "Connect"
+      : "Pair";
 
   function renderMetricWidget(item: {
     label: string;
@@ -1128,6 +1381,9 @@ export default function DashboardApp({
             pendingVerificationEmail={pendingVerificationEmail}
             resendLoading={resendLoading}
             onResendVerification={resendVerification}
+            onForgotPassword={forgotPassword}
+            onResetPassword={resetPassword}
+            resetToken={resetToken}
             onSubmit={handleAuthSubmit}
           />
         </div>
@@ -1303,13 +1559,28 @@ export default function DashboardApp({
                   onChange={(event) => setSelectedDeviceId(event.target.value)}
                   list="known-device-ids"
                   className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-blue-400"
-                  placeholder="ws-001"
+                  placeholder="Detected from BLE bridge"
                 />
                 <datalist id="known-device-ids">
                   {devices.map((device) => (
                     <option key={device.deviceId} value={device.deviceId} />
                   ))}
                 </datalist>
+              </label>
+
+              <label className="mt-4 block">
+                <span className="mb-2 block text-sm font-semibold text-slate-700">
+                  Device Name
+                </span>
+                <input
+                  value={selectedDeviceName}
+                  onChange={(event) => {
+                    setSelectedDeviceName(event.target.value);
+                    setIsEditingDeviceName(true);
+                  }}
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-blue-400"
+                  placeholder="Weather Station - Balcony"
+                />
               </label>
 
               <label className="mt-4 block">
@@ -1343,7 +1614,11 @@ export default function DashboardApp({
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
                   <div className="mb-1 font-semibold text-slate-700">Ownership</div>
-                  <div>{isSelectedDeviceOwned ? "Paired" : "Not paired"}</div>
+                  <div>{isSelectedDeviceOwnedByCurrentUser ? "Paired" : "Not paired"}</div>
+                </div>
+                <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                  <div className="mb-1 font-semibold text-slate-700">Name</div>
+                  <div>{selectedDeviceDisplayName}</div>
                 </div>
                 <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
                   <div className="mb-1 font-semibold text-slate-700">District</div>
@@ -1359,28 +1634,52 @@ export default function DashboardApp({
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
                 <button
                   type="button"
                   onClick={handlePairDeviceFlow}
-                  disabled={deviceActionLoading || !selectedDeviceId}
-                  className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-blue-700 disabled:bg-blue-300"
+                  disabled={
+                    deviceActionLoading ||
+                    bleBusy ||
+                    (isSelectedDeviceOwnedByCurrentUser && bleConnected)
+                  }
+                  className="flex min-h-12 items-center justify-center rounded-2xl bg-blue-600 px-5 py-3 text-center text-sm font-bold text-white transition hover:bg-blue-700 disabled:bg-blue-300"
                 >
-                  {deviceActionLoading || bleBusy ? "Working..." : "Pair"}
+                  {primaryDeviceActionLabel}
                 </button>
                 <button
                   type="button"
                   onClick={handleUnpairSelectedDevice}
-                  disabled={deviceActionLoading || !selectedDeviceId || !isSelectedDeviceOwned}
-                  className="rounded-2xl bg-slate-900 px-5 py-3 text-sm font-bold text-white transition hover:bg-slate-800 disabled:bg-slate-300"
+                  disabled={
+                    deviceActionLoading ||
+                    !selectedDeviceId ||
+                    !isSelectedDeviceOwnedByCurrentUser
+                  }
+                  className="flex min-h-12 items-center justify-center rounded-2xl bg-slate-900 px-5 py-3 text-center text-sm font-bold text-white transition hover:bg-slate-800 disabled:bg-slate-300"
                 >
                   Unpair
                 </button>
+                {isSelectedDeviceOwnedByCurrentUser ? (
+                  <button
+                    type="button"
+                    onClick={handleSaveDeviceProfile}
+                    disabled={
+                      profileSaving || !hasPendingProfileChanges || !normalizedSelectedDeviceName
+                    }
+                    className="flex min-h-12 items-center justify-center rounded-2xl border border-slate-200 bg-white px-5 py-3 text-center text-sm font-bold text-slate-700 transition hover:bg-slate-50 disabled:bg-slate-100 disabled:text-slate-400"
+                  >
+                  {profileSaving ? "Saving..." : "Save Details"}
+                </button>
+              ) : (
+                <div className="flex min-h-12 items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-5 py-3 text-center text-sm font-semibold text-slate-400">
+                    Save after Pair
+                </div>
+              )}
                 <button
                   type="button"
                   onClick={handleReconnectBle}
                   disabled={bleBusy || !bleDeviceRef.current || bleConnected}
-                  className="rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50 disabled:bg-slate-100 disabled:text-slate-400"
+                  className="flex min-h-12 items-center justify-center rounded-2xl border border-slate-200 bg-white px-5 py-3 text-center text-sm font-bold text-slate-700 transition hover:bg-slate-50 disabled:bg-slate-100 disabled:text-slate-400"
                 >
                   Reconnect
                 </button>

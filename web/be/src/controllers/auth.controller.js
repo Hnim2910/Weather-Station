@@ -2,10 +2,15 @@ const bcrypt = require("bcryptjs");
 const User = require("../models/user.model");
 const Device = require("../models/device.model");
 const { signAuthToken } = require("../utils/auth");
-const { sendVerificationEmail } = require("../services/mail.service");
+const {
+  sendVerificationEmail,
+  sendResetPasswordEmail
+} = require("../services/mail.service");
 const {
   createVerificationToken,
-  createVerificationExpiry
+  createVerificationExpiry,
+  createResetPasswordToken,
+  createResetPasswordExpiry
 } = require("../utils/verification");
 
 function sanitizeUser(user) {
@@ -206,6 +211,90 @@ async function resendVerification(request, response) {
   }
 }
 
+async function forgotPassword(request, response) {
+  const { email } = request.body;
+
+  if (!email) {
+    return response.status(400).json({
+      message: "email is required"
+    });
+  }
+
+  try {
+    const user = await User.findOne({ email: email.toLowerCase() });
+
+    if (user) {
+      user.resetPasswordToken = createResetPasswordToken();
+      user.resetPasswordExpiresAt = createResetPasswordExpiry();
+      await user.save();
+
+      await sendResetPasswordEmail({
+        email: user.email,
+        name: user.name,
+        resetToken: user.resetPasswordToken
+      });
+    }
+
+    return response.json({
+      message: "If the email exists, a password reset link has been sent."
+    });
+  } catch (error) {
+    return response.status(500).json({
+      message: "Failed to process forgot password request",
+      error: error.message
+    });
+  }
+}
+
+async function resetPassword(request, response) {
+  const { token, password } = request.body;
+
+  if (!token || typeof token !== "string") {
+    return response.status(400).json({
+      message: "reset token is required"
+    });
+  }
+
+  if (!password || typeof password !== "string") {
+    return response.status(400).json({
+      message: "password is required"
+    });
+  }
+
+  if (password.length < 6) {
+    return response.status(400).json({
+      message: "password must be at least 6 characters"
+    });
+  }
+
+  try {
+    const user = await User.findOne({
+      resetPasswordToken: token,
+      resetPasswordExpiresAt: { $gt: new Date() }
+    });
+
+    if (!user) {
+      return response.status(400).json({
+        message: "Invalid or expired reset token"
+      });
+    }
+
+    user.passwordHash = await bcrypt.hash(password, 10);
+    user.resetPasswordToken = null;
+    user.resetPasswordExpiresAt = null;
+    await user.save();
+
+    return response.json({
+      message: "Password reset successfully"
+    });
+  } catch (error) {
+    return response.status(500).json({
+      message: "Failed to reset password",
+      error: error.message
+    });
+  }
+}
+
 function getMe(request, response) {
   return response.json({
     user: request.user
@@ -300,6 +389,8 @@ module.exports = {
   login,
   verifyEmail,
   resendVerification,
+  forgotPassword,
+  resetPassword,
   getMe,
   listUsers,
   updateUserLockStatus

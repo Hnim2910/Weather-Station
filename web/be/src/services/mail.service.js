@@ -123,8 +123,30 @@ async function sendThresholdAlertEmail({ email, name, deviceId, triggeredAlerts,
   });
 }
 
+async function sendResetPasswordEmail({ email, name, resetToken }) {
+  const appBaseUrl = getAppBaseUrl();
+  const resetUrl = `${appBaseUrl}/login?resetToken=${encodeURIComponent(resetToken)}`;
+  const displayName = name || email;
+
+  return sendMail({
+    to: email,
+    subject: "Reset your Weather Station password",
+    text: `Hello ${displayName}, reset your password using this link: ${resetUrl}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; line-height: 1.6;">
+        <h2>Reset your Weather Station password</h2>
+        <p>Hello <strong>${displayName}</strong>,</p>
+        <p>Click the link below to set a new password:</p>
+        <p><a href="${resetUrl}">${resetUrl}</a></p>
+        <p>This link will expire in 1 hour.</p>
+      </div>
+    `
+  });
+}
+
 module.exports = {
   sendMail,
   sendVerificationEmail,
-  sendThresholdAlertEmail
+  sendThresholdAlertEmail,
+  sendResetPasswordEmail
 };

@@ -94,6 +94,12 @@ const deviceSchema = new mongoose.Schema(
       trim: true,
       index: true
     },
+    deviceName: {
+      type: String,
+      trim: true,
+      default: null,
+      maxlength: 80
+    },
     owner: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

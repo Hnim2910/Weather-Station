@@ -13,6 +13,9 @@ export function AuthCard({
   pendingVerificationEmail,
   resendLoading,
   onResendVerification,
+  onForgotPassword,
+  onResetPassword,
+  resetToken,
   onSubmit
 }: {
   mode: AuthMode;
@@ -23,6 +26,9 @@ export function AuthCard({
   pendingVerificationEmail: string;
   resendLoading: boolean;
   onResendVerification: (email: string) => Promise<void>;
+  onForgotPassword: (email: string) => Promise<void>;
+  onResetPassword: (payload: { token: string; password: string }) => Promise<void>;
+  resetToken: string;
   onSubmit: (payload: {
     name: string;
     email: string;
@@ -35,6 +41,12 @@ export function AuthCard({
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
+
+    if (resetToken) {
+      await onResetPassword({ token: resetToken, password });
+      return;
+    }
+
     await onSubmit({ name, email, password });
   }
 
@@ -45,12 +57,14 @@ export function AuthCard({
           Weather Station Access
         </p>
         <h1 className="text-3xl font-black text-slate-900">
-          {mode === "login" ? "Dang nhap" : "Dang ky"}
+          {resetToken ? "Reset Password" : mode === "login" ? "Login" : "Register"}
         </h1>
         <p className="mt-2 text-sm text-slate-500">
-          {mode === "login"
-            ? "Dang nhap de xem du lieu va claim thiet bi."
-            : "Tao tai khoan de quan ly thiet bi cua ban."}
+          {resetToken
+            ? "Enter a new password for your account."
+            : mode === "login"
+              ? "Sign in to monitor data and manage your devices."
+              : "Create an account to manage your weather station."}
         </p>
       </div>
 
@@ -67,10 +81,10 @@ export function AuthCard({
       ) : null}
 
       <form onSubmit={handleSubmit} className="space-y-4">
-        {mode === "register" ? (
+        {mode === "register" && !resetToken ? (
           <div>
             <label className="mb-2 block text-sm font-semibold text-slate-700">
-              Ho ten
+              Full Name
             </label>
             <input
               value={name}
@@ -81,7 +95,8 @@ export function AuthCard({
           </div>
         ) : null}
 
-        <div>
+        {!resetToken ? (
+          <div>
           <label className="mb-2 block text-sm font-semibold text-slate-700">
             Email
           </label>
@@ -93,11 +108,12 @@ export function AuthCard({
             placeholder="name@email.com"
             required
           />
-        </div>
+          </div>
+        ) : null}
 
         <div>
           <label className="mb-2 block text-sm font-semibold text-slate-700">
-            Mat khau
+            {resetToken ? "New Password" : "Password"}
           </label>
           <input
             type="password"
@@ -115,23 +131,39 @@ export function AuthCard({
           className="w-full rounded-2xl bg-blue-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-blue-700 disabled:bg-blue-300"
         >
           {authLoading
-            ? "Dang xu ly..."
-            : mode === "login"
-              ? "Dang nhap"
-              : "Dang ky"}
+            ? "Processing..."
+            : resetToken
+              ? "Reset Password"
+              : mode === "login"
+                ? "Login"
+                : "Register"}
         </button>
       </form>
 
-      <div className="mt-4 text-center text-sm text-slate-500">
-        {mode === "login" ? "Chua co tai khoan?" : "Da co tai khoan?"}{" "}
-        <button
-          type="button"
-          onClick={() => setMode(mode === "login" ? "register" : "login")}
-          className="font-semibold text-blue-600"
-        >
-          {mode === "login" ? "Dang ky" : "Dang nhap"}
-        </button>
-      </div>
+      {!resetToken ? (
+        <div className="mt-4 space-y-3 text-center text-sm text-slate-500">
+          {mode === "login" ? (
+            <button
+              type="button"
+              onClick={() => void onForgotPassword(email)}
+              className="font-semibold text-blue-600"
+            >
+              Forgot password?
+            </button>
+          ) : null}
+
+          <div>
+            {mode === "login" ? "Don't have an account?" : "Already have an account?"}{" "}
+            <button
+              type="button"
+              onClick={() => setMode(mode === "login" ? "register" : "login")}
+              className="font-semibold text-blue-600"
+            >
+              {mode === "login" ? "Register" : "Login"}
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {mode === "login" && pendingVerificationEmail ? (
         <div className="mt-4 border-t border-slate-100 pt-4">
@@ -141,7 +173,7 @@ export function AuthCard({
             disabled={resendLoading}
             className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:bg-slate-100"
           >
-            {resendLoading ? "Dang gui lai mail..." : "Gui lai email xac thuc"}
+            {resendLoading ? "Sending verification email..." : "Resend verification email"}
           </button>
         </div>
       ) : null}

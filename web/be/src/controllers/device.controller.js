@@ -92,7 +92,16 @@ function canAccessDevice(device, user) {
     return true;
   }
 
-  return Boolean(device.owner && device.owner.toString() === user._id.toString());
+  if (!device.owner) {
+    return false;
+  }
+
+  const ownerId =
+    typeof device.owner === "object" && device.owner !== null
+      ? device.owner._id || device.owner.id
+      : device.owner;
+
+  return Boolean(ownerId && ownerId.toString() === user._id.toString());
 }
 
 function normalizeDistrict(district) {
@@ -101,6 +110,15 @@ function normalizeDistrict(district) {
   }
 
   const trimmed = district.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizeDeviceName(deviceName) {
+  if (typeof deviceName !== "string") {
+    return null;
+  }
+
+  const trimmed = deviceName.trim();
   return trimmed.length > 0 ? trimmed : null;
 }
 
@@ -193,6 +211,15 @@ async function listDevices(request, response) {
 async function claimDevice(request, response) {
   const { deviceId } = request.body;
   const district = normalizeDistrict(request.body.district);
+  const deviceName = normalizeDeviceName(request.body.deviceName);
+  const hasDistrictInRequest = Object.prototype.hasOwnProperty.call(
+    request.body,
+    "district"
+  );
+  const hasDeviceNameInRequest = Object.prototype.hasOwnProperty.call(
+    request.body,
+    "deviceName"
+  );
 
   if (!deviceId || typeof deviceId !== "string") {
     return response.status(400).json({
@@ -226,7 +253,11 @@ async function claimDevice(request, response) {
         $set: {
           owner: request.user._id,
           pairedAt: new Date(),
-          ...(district ? { district } : {})
+          ...(hasDistrictInRequest ? { district } : {}),
+          ...(hasDeviceNameInRequest && deviceName ? { deviceName } : {})
+        },
+        $setOnInsert: {
+          deviceName: deviceName || deviceId
         }
       },
       {
@@ -242,6 +273,60 @@ async function claimDevice(request, response) {
   } catch (error) {
     return response.status(500).json({
       message: "Failed to claim device",
+      error: error.message
+    });
+  }
+}
+
+async function updateDeviceProfile(request, response) {
+  const { deviceId } = request.params;
+  const district = normalizeDistrict(request.body.district);
+  const deviceName = normalizeDeviceName(request.body.deviceName);
+
+  if (!isValidDistrict(district)) {
+    return response.status(400).json({
+      message: "Invalid district"
+    });
+  }
+
+  if (request.body.deviceName !== undefined && deviceName === null) {
+    return response.status(400).json({
+      message: "deviceName cannot be empty"
+    });
+  }
+
+  try {
+    const device = await Device.findOne({ deviceId }).populate("owner", "name email role");
+
+    if (!device) {
+      return response.status(404).json({
+        message: "Device not found"
+      });
+    }
+
+    if (!canAccessDevice(device, request.user)) {
+      return response.status(403).json({
+        message: "Forbidden"
+      });
+    }
+
+    if (request.body.deviceName !== undefined) {
+      device.deviceName = deviceName;
+    }
+
+    if (request.body.district !== undefined) {
+      device.district = district;
+    }
+
+    await device.save();
+
+    return response.json({
+      message: "Device profile updated successfully",
+      data: device
+    });
+  } catch (error) {
+    return response.status(500).json({
+      message: "Failed to update device profile",
       error: error.message
     });
   }
@@ -551,6 +636,7 @@ async function updateDeviceAlerts(request, response) {
 module.exports = {
   listDevices,
   claimDevice,
+  updateDeviceProfile,
   unclaimDevice,
   adminForceUnclaimDevice,
   getDistrictAnalytics,

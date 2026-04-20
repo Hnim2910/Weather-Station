@@ -8,7 +8,7 @@
 #include <Adafruit_AHTX0.h>
 #include <Adafruit_BMP280.h>
 
-//Pin
+// Hardware pin mapping for the ESP32 weather station board.
 #define SDA_PIN 21
 #define SCL_PIN 22
 #define AHT20_ADDR 0x38
@@ -31,17 +31,22 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 Adafruit_AHTX0 aht;
 Adafruit_BMP280 bmp;
 
+// BLE bridge objects are kept global because they are shared across setup(),
+// callbacks, and the main loop notification path.
 BLEServer* bleServer = nullptr;
 BLECharacteristic* bridgeInfoCharacteristic = nullptr;
 BLECharacteristic* bridgeReadingCharacteristic = nullptr;
 BLECharacteristic* bridgeStatusCharacteristic = nullptr;
 
+// deviceId is derived from the ESP32 MAC, so each board keeps a stable unique ID.
 String deviceId;
 
+// Runtime state flags for optional sensors and BLE connection state.
 bool bmpReady = false;
 bool bleClientConnected = false;
 bool bleBridgeStreamingEnabled = true;
 
+// millis()-based scheduling keeps UI, logging and BLE streaming mostly non-blocking.
 unsigned long previousMillis = 0;
 const long screenInterval = 5000;
 int screenState = 0;
@@ -51,6 +56,7 @@ const long serialInterval = 2000;
 unsigned long lastBleNotifyTime = 0;
 const long bleNotifyInterval = 2000;
 
+// Wind speed is computed from hall sensor pulses counted inside an interrupt.
 volatile int pulseCount = 0;
 unsigned long lastWindCalcTime = 0;
 float windSpeed = 0.0;
@@ -68,6 +74,7 @@ void updateBridgeStatus(const String& statusMessage) {
 }
 
 String buildDeviceId() {
+  // Use the efuse MAC to generate a unique and repeatable device ID.
   uint64_t chipId = ESP.getEfuseMac();
   char idBuffer[24];
   snprintf(
@@ -82,11 +89,13 @@ String buildDeviceId() {
 
 class WeatherBleServerCallbacks : public BLEServerCallbacks {
   void onConnect(BLEServer* server) override {
+    // Mark the client as connected so notifications can be pushed safely.
     bleClientConnected = true;
     updateBridgeStatus(bleBridgeStreamingEnabled ? "STREAMING" : "STOPPED");
   }
 
   void onDisconnect(BLEServer* server) override {
+    // Resume advertising immediately so the web client can reconnect later.
     bleClientConnected = false;
     updateBridgeStatus("CLIENT_DISCONNECTED");
     BLEDevice::startAdvertising();
@@ -95,6 +104,7 @@ class WeatherBleServerCallbacks : public BLEServerCallbacks {
 
 class BridgeControlCallback : public BLECharacteristicCallbacks {
   void onWrite(BLECharacteristic* characteristic) override {
+    // The browser controls the bridge with simple START/STOP/STATUS commands.
     String command = String(characteristic->getValue().c_str());
     command.trim();
     command.toUpperCase();
@@ -121,6 +131,7 @@ class BridgeControlCallback : public BLECharacteristicCallbacks {
 };
 
 void startBleServices() {
+  // Expose one BLE service that contains device info, live readings and bridge status.
   BLEDevice::init("WS-Bridge");
 
   bleServer = BLEDevice::createServer();
@@ -168,6 +179,7 @@ void startBleServices() {
 }
 
 String buildPayload(float temperature, float humidity, float pressure, float rainPercent, float currentWindSpeed) {
+  // Keep payload format aligned with the backend reading schema.
   String payload = "{\"deviceId\":\"";
   payload += deviceId;
   payload += "\",\"temperature\":";
@@ -186,6 +198,7 @@ String buildPayload(float temperature, float humidity, float pressure, float rai
 }
 
 void notifyBleReading(const String& payload) {
+  // Skip notifications if streaming is disabled or BLE has not been initialized.
   if (!bleBridgeStreamingEnabled || bridgeReadingCharacteristic == nullptr) {
     return;
   }
@@ -197,6 +210,7 @@ void notifyBleReading(const String& payload) {
 }
 
 void scanI2CDevices() {
+  // Diagnostic helper used only when a sensor cannot be found at startup.
   Serial.println("Scanning I2C...");
   for (byte address = 1; address < 127; address++) {
     Wire.beginTransmission(address);
@@ -211,10 +225,12 @@ void scanI2CDevices() {
 }
 
 void IRAM_ATTR countPulse() {
+  // Keep the ISR minimal: only increment the pulse counter and return.
   pulseCount++;
 }
 
 void setup() {
+  // Initialize serial, I2C and the device ID before starting BLE and sensors.
   Serial.begin(115200);
   Wire.begin(SDA_PIN, SCL_PIN);
   deviceId = buildDeviceId();
@@ -223,6 +239,7 @@ void setup() {
 
   startBleServices();
 
+  // The firmware keeps running even if the OLED is absent.
   if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
     Serial.println(F("Khong tim thay OLED SSD1306"));
   } else {
@@ -234,10 +251,12 @@ void setup() {
     display.display();
   }
 
+  // The firmware also keeps running if individual sensors are missing.
   if (!aht.begin(&Wire, 0, AHT20_ADDR)) {
     Serial.println("Khong tim thay AHT20!");
   }
 
+  // Try both common BMP280 addresses before reporting the sensor as unavailable.
   bmpReady = bmp.begin(0x76);
   if (!bmpReady) {
     bmpReady = bmp.begin(0x77);
@@ -253,12 +272,15 @@ void setup() {
   pinMode(RAIN_AO, INPUT);
   pinMode(RAIN_DO, INPUT);
   pinMode(HALL_PIN, INPUT_PULLUP);
+  // Count wind pulses with an interrupt instead of polling the hall sensor.
   attachInterrupt(digitalPinToInterrupt(HALL_PIN), countPulse, FALLING);
 
+  // Small startup delay lets peripherals stabilize before entering the main loop.
   delay(2000);
 }
 
 void loop() {
+  // One loop pass reads sensors, updates derived values, then refreshes BLE, Serial and OLED.
   unsigned long currentMillis = millis();
 
   sensors_event_t humidityEvent;
@@ -268,11 +290,13 @@ void loop() {
   float temperature = temperatureEvent.temperature;
   float humidity = humidityEvent.relative_humidity;
 
+  // Pressure is optional because BMP280 may fail to initialize.
   float pressure = NAN;
   if (bmpReady) {
     pressure = bmp.readPressure() / 100.0;
   }
 
+  // Normalize the analog rain sensor to a 0-100 wetness percentage for the UI/backend.
   int rainRaw = analogRead(RAIN_AO);
   float rainPercent = map(rainRaw, 4095, 0, 0, 100);
   if (rainPercent < 0) {
@@ -282,6 +306,7 @@ void loop() {
     rainPercent = 100;
   }
 
+  // Convert pulse count to wind speed every 2 seconds to reduce noise and CPU overhead.
   if (currentMillis - lastWindCalcTime >= 2000) {
     windSpeed = pulseCount * 0.5;
     pulseCount = 0;
@@ -290,11 +315,13 @@ void loop() {
 
   String payload = buildPayload(temperature, humidity, pressure, rainPercent, windSpeed);
 
+  // Throttle serial logging to keep the loop responsive.
   if (currentMillis - lastSerialPrintTime >= serialInterval) {
     lastSerialPrintTime = currentMillis;
     Serial.println(payload);
   }
 
+  // Throttle BLE notifications to send a stable stream instead of flooding the client.
   if (currentMillis - lastBleNotifyTime >= bleNotifyInterval) {
     lastBleNotifyTime = currentMillis;
     notifyBleReading(payload);
@@ -351,5 +378,6 @@ void loop() {
   }
 
   display.display();
+  // Short delay reduces CPU churn while keeping BLE and UI responsive enough for this design.
   delay(100);
 }

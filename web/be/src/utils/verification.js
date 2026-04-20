@@ -8,7 +8,17 @@ function createVerificationExpiry() {
   return new Date(Date.now() + 24 * 60 * 60 * 1000);
 }
 
+function createResetPasswordToken() {
+  return crypto.randomBytes(32).toString("hex");
+}
+
+function createResetPasswordExpiry() {
+  return new Date(Date.now() + 60 * 60 * 1000);
+}
+
 module.exports = {
   createVerificationToken,
-  createVerificationExpiry
+  createVerificationExpiry,
+  createResetPasswordToken,
+  createResetPasswordExpiry
 };

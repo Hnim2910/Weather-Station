@@ -51,6 +51,7 @@ type DeviceOwner = {
 type DeviceRecord = {
   _id?: string;
   deviceId: string;
+  deviceName?: string | null;
   owner: DeviceOwner | null;
   pairedAt?: string | null;
   lastSeenAt?: string | null;
@@ -623,7 +624,10 @@ export default function AdminDashboard() {
                     >
                       <div className="flex items-start justify-between gap-4">
                         <div>
-                          <div className="font-bold text-slate-900">{device.deviceId}</div>
+                          <div className="font-bold text-slate-900">
+                            {device.deviceName || device.deviceId}
+                          </div>
+                          <div className="text-xs text-slate-400">{device.deviceId}</div>
                           <div className="text-sm text-slate-500">
                             {device.owner?.email || "Not paired"}
                           </div>
@@ -878,7 +882,13 @@ export default function AdminDashboard() {
                     <div className="mb-1 text-xs font-bold uppercase tracking-[0.22em] text-slate-400">
                       Device
                     </div>
-                    <div className="font-bold text-slate-900">{selectedReading.deviceId}</div>
+                    <div className="font-bold text-slate-900">
+                      {devices.find((device) => device.deviceId === selectedReading.deviceId)
+                        ?.deviceName || selectedReading.deviceId}
+                    </div>
+                    <div className="mt-1 text-xs text-slate-400">
+                      {selectedReading.deviceId}
+                    </div>
                     <div className="mt-1 text-xs text-slate-500">
                       District:{" "}
                       {devices.find((device) => device.deviceId === selectedReading.deviceId)
