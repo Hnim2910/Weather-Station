@@ -11,7 +11,8 @@ import {
   MapPinned,
   CalendarRange,
   Thermometer,
-  Droplets
+  Droplets,
+  CloudRain
 } from "lucide-react";
 import { MetricChart } from "./metric-chart";
 import { HANOI_DISTRICTS } from "../lib/hanoi-districts";
@@ -20,6 +21,7 @@ const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5000";
 const TOKEN_STORAGE_KEY = "weather-auth-token";
 const USER_STORAGE_KEY = "weather-auth-user";
+const RAIN_MM_PER_TIP = 0.2;
 
 type AuthUser = {
   id: string;
@@ -65,6 +67,9 @@ type WeatherReading = {
   humidity: number;
   pressure: number;
   rain: number;
+  rainRateMmPerHour?: number;
+  rainTipCount?: number;
+  rainfallMm?: number;
   windSpeed: number;
   timestamp?: string;
 };
@@ -75,6 +80,7 @@ type DistrictAnalyticsPoint = {
   humidity: number | null;
   windSpeed: number | null;
   rain: number | null;
+  rainRateMmPerHour: number | null;
 };
 
 type DistrictAnalyticsResponse = {
@@ -89,11 +95,25 @@ type DistrictAnalyticsResponse = {
     humidity: number | null;
     windSpeed: number | null;
     rain: number | null;
+    rainRateMmPerHour: number | null;
+    rainfallMm: number | null;
     pressure: number | null;
     lastReadingAt: string | null;
   };
   timeline: DistrictAnalyticsPoint[];
 };
+
+function getRainfallMm(reading: WeatherReading) {
+  if (typeof reading.rainfallMm === "number") {
+    return reading.rainfallMm;
+  }
+
+  if (typeof reading.rainTipCount === "number") {
+    return Number((reading.rainTipCount * RAIN_MM_PER_TIP).toFixed(1));
+  }
+
+  return 0;
+}
 
 function getStoredUser() {
   const raw = window.localStorage.getItem(USER_STORAGE_KEY);
@@ -362,7 +382,8 @@ export default function AdminDashboard() {
     temperature: point.temperature ?? 0,
     humidity: point.humidity ?? 0,
     windSpeed: point.windSpeed ?? 0,
-    rain: point.rain ?? 0
+    rain: point.rain ?? 0,
+    rainRateMmPerHour: point.rainRateMmPerHour ?? 0
   }));
 
   function handleSelectDevice(deviceId: string) {
@@ -731,7 +752,7 @@ export default function AdminDashboard() {
             </div>
           </div>
 
-          <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
             {[
               {
                 label: "Devices in district",
@@ -768,6 +789,17 @@ export default function AdminDashboard() {
                 Icon: Droplets,
                 color: "text-cyan-600",
                 bg: "bg-cyan-50"
+              },
+              {
+                label: "Avg rainfall rate",
+                value:
+                  districtSummary?.rainRateMmPerHour !== null &&
+                  districtSummary?.rainRateMmPerHour !== undefined
+                    ? `${districtSummary.rainRateMmPerHour.toFixed(1)} mm/h`
+                    : "--",
+                Icon: CloudRain,
+                color: "text-emerald-600",
+                bg: "bg-emerald-50"
               }
             ].map((item) => (
               <div key={item.label} className="rounded-[1.5rem] border border-slate-200 p-4">
@@ -842,6 +874,16 @@ export default function AdminDashboard() {
                   dataKey="rain"
                   stroke="#6366f1"
                   gradientId="adminDistrictRain"
+                  chartHeight={260}
+                />
+              </div>
+              <div className="rounded-[1.5rem] border border-slate-200 p-4">
+                <MetricChart
+                  title="Rainfall Rate by Period"
+                  data={districtChartData}
+                  dataKey="rainRateMmPerHour"
+                  stroke="#059669"
+                  gradientId="adminDistrictRainRate"
                   chartHeight={260}
                 />
               </div>
@@ -926,6 +968,22 @@ export default function AdminDashboard() {
                       </div>
                       <div className="mt-2 text-2xl font-black text-slate-900">
                         {selectedReading.rain.toFixed(0)}%
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 px-4 py-4">
+                      <div className="text-xs font-bold uppercase tracking-[0.22em] text-slate-400">
+                        Rainfall Total
+                      </div>
+                      <div className="mt-2 text-2xl font-black text-slate-900">
+                        {getRainfallMm(selectedReading).toFixed(1)} mm
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 px-4 py-4">
+                      <div className="text-xs font-bold uppercase tracking-[0.22em] text-slate-400">
+                        Rainfall Rate
+                      </div>
+                      <div className="mt-2 text-2xl font-black text-slate-900">
+                        {(selectedReading.rainRateMmPerHour ?? 0).toFixed(1)} mm/h
                       </div>
                     </div>
                   </div>

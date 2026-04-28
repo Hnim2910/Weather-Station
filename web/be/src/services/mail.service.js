@@ -88,7 +88,9 @@ async function sendThresholdAlertEmail({ email, name, deviceId, triggeredAlerts,
     `Do am: ${reading.humidity.toFixed(1)} %`,
     `Ap suat: ${reading.pressure.toFixed(1)} hPa`,
     `Toc do gio: ${reading.windSpeed.toFixed(1)} m/s`,
-    `Muc uot cam bien mua: ${reading.rain.toFixed(0)} %`
+    `Muc uot cam bien mua: ${reading.rain.toFixed(0)} %`,
+    `Luong mua tich luy: ${(reading.rainfallMm || 0).toFixed(1)} mm`,
+    `Toc do mua: ${(reading.rainRateMmPerHour || 0).toFixed(1)} mm/h`
   ].join("\n");
 
   const html = `
@@ -111,6 +113,8 @@ async function sendThresholdAlertEmail({ email, name, deviceId, triggeredAlerts,
         <li>Ap suat: ${reading.pressure.toFixed(1)} hPa</li>
         <li>Toc do gio: ${reading.windSpeed.toFixed(1)} m/s</li>
         <li>Muc uot cam bien mua: ${reading.rain.toFixed(0)} %</li>
+        <li>Luong mua tich luy: ${(reading.rainfallMm || 0).toFixed(1)} mm</li>
+        <li>Toc do mua: ${(reading.rainRateMmPerHour || 0).toFixed(1)} mm/h</li>
       </ul>
     </div>
   `;

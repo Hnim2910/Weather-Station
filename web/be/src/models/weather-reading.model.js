@@ -26,6 +26,21 @@ const weatherReadingSchema = new mongoose.Schema(
       min: 0,
       max: 100
     },
+    rainRateMmPerHour: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
+    rainTipCount: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
+    rainfallMm: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
     windSpeed: {
       type: Number,
       required: true,

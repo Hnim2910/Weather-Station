@@ -14,7 +14,9 @@
 #define AHT20_ADDR 0x38
 #define RAIN_AO 32
 #define RAIN_DO 2
+#define RAIN_TIP_PIN 17
 #define HALL_PIN 27
+#define BUTTON_PIN 18
 
 // BLE bridge service for live readings.
 #define BLE_BRIDGE_SERVICE_UUID "6c123450-52d1-4f36-8a87-2d7e4f510101"
@@ -45,11 +47,18 @@ String deviceId;
 bool bmpReady = false;
 bool bleClientConnected = false;
 bool bleBridgeStreamingEnabled = true;
+bool oledReady = false;
+bool displaySleeping = false;
 
-// millis()-based scheduling keeps UI, logging and BLE streaming mostly non-blocking.
-unsigned long previousMillis = 0;
-const long screenInterval = 5000;
+// The OLED screen is now user-driven by a push button instead of auto-rotating.
 int screenState = 0;
+int lastButtonReading = HIGH;
+int stableButtonState = HIGH;
+int buttonIdleState = HIGH;
+unsigned long lastButtonDebounceTime = 0;
+unsigned long lastUserInteractionTime = 0;
+const unsigned long buttonDebounceDelay = 50;
+const unsigned long displaySleepTimeout = 300000;
 
 unsigned long lastSerialPrintTime = 0;
 const long serialInterval = 2000;
@@ -60,6 +69,127 @@ const long bleNotifyInterval = 2000;
 volatile int pulseCount = 0;
 unsigned long lastWindCalcTime = 0;
 float windSpeed = 0.0;
+
+// Tipping bucket rainfall is measured by a second hall sensor on a separate GPIO.
+volatile unsigned long rainTipCount = 0;
+const float RAIN_MM_PER_TIP = 0.2f;
+float rainRateMmPerHour = 0.0f;
+unsigned long lastRainRateCalcTime = 0;
+unsigned long lastRainTipSnapshot = 0;
+
+void wakeDisplay() {
+  if (!oledReady || !displaySleeping) {
+    return;
+  }
+
+  display.ssd1306_command(SSD1306_DISPLAYON);
+  displaySleeping = false;
+}
+
+void sleepDisplay() {
+  if (!oledReady || displaySleeping) {
+    return;
+  }
+
+  display.clearDisplay();
+  display.display();
+  display.ssd1306_command(SSD1306_DISPLAYOFF);
+  displaySleeping = true;
+}
+
+void handleButtonPress(unsigned long currentMillis) {
+  // Wake-up uses one press; changing the screen requires the next press.
+  if (displaySleeping) {
+    wakeDisplay();
+    lastUserInteractionTime = currentMillis;
+    return;
+  }
+
+  screenState = !screenState;
+  lastUserInteractionTime = currentMillis;
+}
+
+void pollButton(unsigned long currentMillis) {
+  // Treat whichever level is present at boot as the idle state, so the module
+  // can be either active-low or active-high without code changes.
+  int reading = digitalRead(BUTTON_PIN);
+
+  if (reading != lastButtonReading) {
+    lastButtonDebounceTime = currentMillis;
+  }
+
+  if ((currentMillis - lastButtonDebounceTime) >= buttonDebounceDelay && reading != stableButtonState) {
+    stableButtonState = reading;
+    if (stableButtonState != buttonIdleState) {
+      handleButtonPress(currentMillis);
+    }
+  }
+
+  lastButtonReading = reading;
+}
+
+void renderDisplay(float temperature, float humidity, float rainPercent, float currentWindSpeed) {
+  if (!oledReady || displaySleeping) {
+    return;
+  }
+
+  display.clearDisplay();
+
+  if (screenState == 0) {
+    // --- SCREEN 1: TEMPERATURE & HUMIDITY ---
+    display.setTextSize(1);
+    display.setCursor(20, 0);
+    display.print("TEMP & HUMIDITY");
+
+    display.setTextSize(2);
+    display.setCursor(0, 20);
+    display.print("T:");
+    display.print(temperature, 1);
+    display.print(" C");
+
+    display.setCursor(0, 45);
+    display.print("H:");
+    display.print(humidity, 1);
+    display.print(" %");
+  } else {
+    // --- SCREEN 2: WIND, WETNESS & RAINFALL ---
+    display.setTextSize(1);
+    display.setCursor(28, 0);
+    display.print("RAIN & WIND");
+
+    display.setTextSize(1);
+    display.setCursor(0, 18);
+    display.print("Wind");
+    display.setTextSize(2);
+    display.setCursor(42, 14);
+    display.print(currentWindSpeed, 1);
+    display.setTextSize(1);
+    display.setCursor(100, 22);
+    display.print("m/s");
+
+    display.setTextSize(1);
+    display.setCursor(0, 35);
+    display.print("Wet");
+    display.setTextSize(2);
+    display.setCursor(42, 31);
+    display.print(rainPercent, 0);
+    display.setTextSize(1);
+    display.setCursor(102, 39);
+    display.print("%");
+
+    display.setTextSize(1);
+    display.setCursor(0, 52);
+    display.print("Rain");
+    display.setTextSize(2);
+    display.setCursor(42, 48);
+    display.print(rainRateMmPerHour, 1);
+    display.setTextSize(1);
+    display.setCursor(94, 56);
+    display.print("mm/h");
+  }
+
+  display.display();
+}
 
 void updateBridgeStatus(const String& statusMessage) {
   Serial.print("BLE BRIDGE: ");
@@ -192,6 +322,10 @@ String buildPayload(float temperature, float humidity, float pressure, float rai
   payload += String(rainPercent, 0);
   payload += ",\"windSpeed\":";
   payload += String(currentWindSpeed, 1);
+  payload += ",\"rainRateMmPerHour\":";
+  payload += String(rainRateMmPerHour, 1);
+  payload += ",\"rainTipCount\":";
+  payload += String(rainTipCount);
   payload += "}";
 
   return payload;
@@ -229,6 +363,11 @@ void IRAM_ATTR countPulse() {
   pulseCount++;
 }
 
+void IRAM_ATTR countRainTip() {
+  // Each tipping-bucket flip produces one pulse from the rain hall sensor.
+  rainTipCount++;
+}
+
 void setup() {
   // Initialize serial, I2C and the device ID before starting BLE and sensors.
   Serial.begin(115200);
@@ -243,6 +382,7 @@ void setup() {
   if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
     Serial.println(F("Khong tim thay OLED SSD1306"));
   } else {
+    oledReady = true;
     display.clearDisplay();
     display.setTextColor(WHITE);
     display.setTextSize(1);
@@ -271,9 +411,17 @@ void setup() {
 
   pinMode(RAIN_AO, INPUT);
   pinMode(RAIN_DO, INPUT);
+  pinMode(RAIN_TIP_PIN, INPUT_PULLUP);
   pinMode(HALL_PIN, INPUT_PULLUP);
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
+  // Count rainfall bucket tips with a dedicated hall sensor interrupt.
+  attachInterrupt(digitalPinToInterrupt(RAIN_TIP_PIN), countRainTip, FALLING);
   // Count wind pulses with an interrupt instead of polling the hall sensor.
   attachInterrupt(digitalPinToInterrupt(HALL_PIN), countPulse, FALLING);
+  lastButtonReading = digitalRead(BUTTON_PIN);
+  stableButtonState = lastButtonReading;
+  buttonIdleState = lastButtonReading;
+  lastUserInteractionTime = millis();
 
   // Small startup delay lets peripherals stabilize before entering the main loop.
   delay(2000);
@@ -282,6 +430,7 @@ void setup() {
 void loop() {
   // One loop pass reads sensors, updates derived values, then refreshes BLE, Serial and OLED.
   unsigned long currentMillis = millis();
+  pollButton(currentMillis);
 
   sensors_event_t humidityEvent;
   sensors_event_t temperatureEvent;
@@ -313,6 +462,17 @@ void loop() {
     lastWindCalcTime = currentMillis;
   }
 
+  // Convert recent bucket tips into rain rate (mm/h) over a 10-second window.
+  if (currentMillis - lastRainRateCalcTime >= 10000) {
+    unsigned long currentRainTips = rainTipCount;
+    unsigned long elapsedMs = currentMillis - lastRainRateCalcTime;
+    unsigned long deltaTips = currentRainTips - lastRainTipSnapshot;
+
+    rainRateMmPerHour = (deltaTips * RAIN_MM_PER_TIP * 3600000.0f) / elapsedMs;
+    lastRainTipSnapshot = currentRainTips;
+    lastRainRateCalcTime = currentMillis;
+  }
+
   String payload = buildPayload(temperature, humidity, pressure, rainPercent, windSpeed);
 
   // Throttle serial logging to keep the loop responsive.
@@ -327,57 +487,12 @@ void loop() {
     notifyBleReading(payload);
   }
 
-  // ==========================================
-  // LOGIC HIỂN THỊ OLED
-  // ==========================================
-  
-  // Kiểm tra xem đã đến lúc đổi màn hình chưa
-  if (currentMillis - previousMillis >= screenInterval) {
-    previousMillis = currentMillis;
-    screenState = !screenState;
+  // Put the OLED into low-power mode if the user has not interacted for 5 minutes.
+  if (!displaySleeping && (currentMillis - lastUserInteractionTime >= displaySleepTimeout)) {
+    sleepDisplay();
   }
 
-  display.clearDisplay();
-
-  if (screenState == 0) {
-    // --- MÀN HÌNH 1: NHIỆT ĐỘ & ĐỘ ẨM ---
-    display.setTextSize(1);
-    display.setCursor(20, 0);
-    display.print("TEMP & HUMIDITY");
-
-    display.setTextSize(2);
-    // Nhiệt độ
-    display.setCursor(0, 20);
-    display.print("T:");
-    display.print(temperature, 1);
-    display.print(" C");
-
-    // Độ ẩm
-    display.setCursor(0, 45);
-    display.print("H:");
-    display.print(humidity, 1);
-    display.print(" %");
-  } else {
-    // --- MÀN HÌNH 2: MƯA & TỐC ĐỘ GIÓ ---
-    display.setTextSize(1);
-    display.setCursor(25, 0);
-    display.print("RAIN & WIND");
-
-    display.setTextSize(2);
-    // Tốc độ gió
-    display.setCursor(0, 20);
-    display.print("W:");
-    display.print(windSpeed, 1);
-    display.print(" m/s");
-
-    // Độ ướt
-    display.setCursor(0, 45);
-    display.print("RAIN : ");
-    display.print(rainPercent, 0);
-    display.print("%");
-  }
-
-  display.display();
+  renderDisplay(temperature, humidity, rainPercent, windSpeed);
   // Short delay reduces CPU churn while keeping BLE and UI responsive enough for this design.
   delay(100);
 }

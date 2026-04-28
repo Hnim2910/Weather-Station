@@ -2,6 +2,8 @@ const WeatherReading = require("../models/weather-reading.model");
 const Device = require("../models/device.model");
 const { sendThresholdAlertEmail } = require("../services/mail.service");
 
+const RAIN_MM_PER_TIP = 0.2;
+
 const ALERT_THRESHOLDS = {
   temperatureHigh: {
     key: "temperatureHigh",
@@ -34,6 +36,14 @@ const ALERT_THRESHOLDS = {
     unit: "%",
     isTriggered: (reading, threshold) => reading.rain >= threshold,
     getValue: (reading) => `${reading.rain.toFixed(0)} %`
+  },
+  rainfallHigh: {
+    key: "rainfallHigh",
+    label: "High rainfall amount",
+    comparator: ">=",
+    unit: "mm",
+    isTriggered: (reading, threshold) => (reading.rainfallMm || 0) >= threshold,
+    getValue: (reading) => `${(reading.rainfallMm || 0).toFixed(1)} mm`
   }
 };
 
@@ -42,7 +52,8 @@ function getDefaultAlertSettings(device) {
     temperatureHigh: device?.alertSettings?.temperatureHigh ?? true,
     windHigh: device?.alertSettings?.windHigh ?? true,
     humidityHigh: device?.alertSettings?.humidityHigh ?? true,
-    rainHigh: device?.alertSettings?.rainHigh ?? true
+    rainHigh: device?.alertSettings?.rainHigh ?? true,
+    rainfallHigh: device?.alertSettings?.rainfallHigh ?? true
   };
 }
 
@@ -51,7 +62,8 @@ function getDefaultAlertThresholds(device) {
     temperatureHigh: device?.alertThresholds?.temperatureHigh ?? 35,
     windHigh: device?.alertThresholds?.windHigh ?? 10,
     humidityHigh: device?.alertThresholds?.humidityHigh ?? 80,
-    rainHigh: device?.alertThresholds?.rainHigh ?? 80
+    rainHigh: device?.alertThresholds?.rainHigh ?? 80,
+    rainfallHigh: device?.alertThresholds?.rainfallHigh ?? 10
   };
 }
 
@@ -60,7 +72,8 @@ function getDefaultAlertState(device) {
     temperatureHigh: device?.alertState?.temperatureHigh ?? false,
     windHigh: device?.alertState?.windHigh ?? false,
     humidityHigh: device?.alertState?.humidityHigh ?? false,
-    rainHigh: device?.alertState?.rainHigh ?? false
+    rainHigh: device?.alertState?.rainHigh ?? false,
+    rainfallHigh: device?.alertState?.rainfallHigh ?? false
   };
 }
 
@@ -94,9 +107,19 @@ function validateReadingPayload(payload) {
   }
 
   const numericFields = ["temperature", "humidity", "pressure", "rain", "windSpeed"];
+  const optionalNumericFields = ["rainRateMmPerHour", "rainTipCount", "rainfallMm"];
 
   for (const field of numericFields) {
     if (typeof payload[field] !== "number" || Number.isNaN(payload[field])) {
+      return `${field} must be a valid number`;
+    }
+  }
+
+  for (const field of optionalNumericFields) {
+    if (
+      payload[field] !== undefined &&
+      (typeof payload[field] !== "number" || Number.isNaN(payload[field]))
+    ) {
       return `${field} must be a valid number`;
     }
   }
@@ -109,7 +132,31 @@ function validateReadingPayload(payload) {
     return "windSpeed must be greater than or equal to 0";
   }
 
+  for (const field of optionalNumericFields) {
+    if (payload[field] !== undefined && payload[field] < 0) {
+      return `${field} must be greater than or equal to 0`;
+    }
+  }
+
   return null;
+}
+
+function normalizeReadingPayload(payload) {
+  const nextPayload = {
+    ...payload,
+    deviceId: payload.deviceId.trim()
+  };
+
+  if (
+    nextPayload.rainfallMm === undefined &&
+    typeof nextPayload.rainTipCount === "number"
+  ) {
+    nextPayload.rainfallMm = Number(
+      (nextPayload.rainTipCount * RAIN_MM_PER_TIP).toFixed(1)
+    );
+  }
+
+  return nextPayload;
 }
 
 async function processThresholdAlerts({ reading, device }) {
@@ -156,6 +203,9 @@ async function processThresholdAlerts({ reading, device }) {
         humidity: reading.humidity,
         pressure: reading.pressure,
         rain: reading.rain,
+        rainRateMmPerHour: reading.rainRateMmPerHour,
+        rainTipCount: reading.rainTipCount,
+        rainfallMm: reading.rainfallMm,
         windSpeed: reading.windSpeed,
         timestamp: reading.timestamp || new Date()
       }
@@ -195,7 +245,8 @@ async function createReading(request, response) {
   }
 
   try {
-    const deviceFilter = { deviceId: request.body.deviceId };
+    const readingPayload = normalizeReadingPayload(request.body);
+    const deviceFilter = { deviceId: readingPayload.deviceId };
     const existingDevice = await Device.findOne(deviceFilter);
 
     if (
@@ -210,7 +261,7 @@ async function createReading(request, response) {
       });
     }
 
-    const reading = await WeatherReading.create(request.body);
+    const reading = await WeatherReading.create(readingPayload);
     const devicePatch = {
       lastSeenAt: new Date()
     };

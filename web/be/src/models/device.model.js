@@ -18,6 +18,10 @@ const alertRuleStateSchema = new mongoose.Schema(
     rainHigh: {
       type: Boolean,
       default: false
+    },
+    rainfallHigh: {
+      type: Boolean,
+      default: false
     }
   },
   {
@@ -42,6 +46,10 @@ const alertThresholdSchema = new mongoose.Schema(
     rainHigh: {
       type: Number,
       default: 80
+    },
+    rainfallHigh: {
+      type: Number,
+      default: 10
     }
   },
   {
@@ -76,6 +84,9 @@ const alertHistoryEntrySchema = new mongoose.Schema(
       humidity: Number,
       pressure: Number,
       rain: Number,
+      rainRateMmPerHour: Number,
+      rainTipCount: Number,
+      rainfallMm: Number,
       windSpeed: Number,
       timestamp: Date
     }
@@ -131,7 +142,8 @@ const deviceSchema = new mongoose.Schema(
         temperatureHigh: true,
         windHigh: true,
         humidityHigh: true,
-        rainHigh: true
+        rainHigh: true,
+        rainfallHigh: true
       })
     },
     alertThresholds: {
@@ -140,7 +152,8 @@ const deviceSchema = new mongoose.Schema(
         temperatureHigh: 35,
         windHigh: 10,
         humidityHigh: 80,
-        rainHigh: 80
+        rainHigh: 80,
+        rainfallHigh: 10
       })
     },
     alertHistory: {

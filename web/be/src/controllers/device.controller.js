@@ -137,7 +137,8 @@ function buildEmptyTimeline(period) {
       temperature: null,
       humidity: null,
       windSpeed: null,
-      rain: null
+      rain: null,
+      rainRateMmPerHour: null
     };
   });
 }
@@ -156,6 +157,7 @@ function buildTimelineFromReadings(readings, period) {
       humiditySum: 0,
       windSpeedSum: 0,
       rainSum: 0,
+      rainRateMmPerHourSum: 0,
       count: 0
     });
   }
@@ -174,6 +176,7 @@ function buildTimelineFromReadings(readings, period) {
     bucket.humiditySum += reading.humidity;
     bucket.windSpeedSum += reading.windSpeed;
     bucket.rainSum += reading.rain;
+    bucket.rainRateMmPerHourSum += reading.rainRateMmPerHour || 0;
     bucket.count += 1;
   }
 
@@ -185,7 +188,11 @@ function buildTimelineFromReadings(readings, period) {
       bucket.count > 0 ? Number((bucket.humiditySum / bucket.count).toFixed(1)) : null,
     windSpeed:
       bucket.count > 0 ? Number((bucket.windSpeedSum / bucket.count).toFixed(1)) : null,
-    rain: bucket.count > 0 ? Number((bucket.rainSum / bucket.count).toFixed(1)) : null
+    rain: bucket.count > 0 ? Number((bucket.rainSum / bucket.count).toFixed(1)) : null,
+    rainRateMmPerHour:
+      bucket.count > 0
+        ? Number((bucket.rainRateMmPerHourSum / bucket.count).toFixed(1))
+        : null
   }));
 }
 
@@ -367,6 +374,8 @@ async function getDistrictAnalytics(request, response) {
           humidity: null,
           windSpeed: null,
           rain: null,
+          rainRateMmPerHour: null,
+          rainfallMm: null,
           pressure: null,
           lastReadingAt: null
         },
@@ -413,6 +422,8 @@ async function getDistrictAnalytics(request, response) {
             humidity: { $avg: "$humidity" },
             windSpeed: { $avg: "$windSpeed" },
             rain: { $avg: "$rain" },
+            rainRateMmPerHour: { $avg: "$rainRateMmPerHour" },
+            rainfallMm: { $avg: "$rainfallMm" },
             pressure: { $avg: "$pressure" },
             lastReadingAt: { $max: "$timestamp" }
           }
@@ -434,6 +445,12 @@ async function getDistrictAnalytics(request, response) {
         humidity: currentAggregate ? Number(currentAggregate.humidity?.toFixed(1) || 0) : null,
         windSpeed: currentAggregate ? Number(currentAggregate.windSpeed?.toFixed(1) || 0) : null,
         rain: currentAggregate ? Number(currentAggregate.rain?.toFixed(1) || 0) : null,
+        rainRateMmPerHour: currentAggregate
+          ? Number(currentAggregate.rainRateMmPerHour?.toFixed(1) || 0)
+          : null,
+        rainfallMm: currentAggregate
+          ? Number(currentAggregate.rainfallMm?.toFixed(1) || 0)
+          : null,
         pressure: currentAggregate ? Number(currentAggregate.pressure?.toFixed(1) || 0) : null,
         lastReadingAt: currentAggregate?.lastReadingAt || null
       },
@@ -545,7 +562,13 @@ async function getDeviceAlerts(request, response) {
 
 async function updateDeviceAlerts(request, response) {
   const { deviceId } = request.params;
-  const allowedKeys = ["temperatureHigh", "windHigh", "humidityHigh", "rainHigh"];
+  const allowedKeys = [
+    "temperatureHigh",
+    "windHigh",
+    "humidityHigh",
+    "rainHigh",
+    "rainfallHigh"
+  ];
 
   try {
     const device = await Device.findOne({ deviceId });
@@ -603,6 +626,12 @@ async function updateDeviceAlerts(request, response) {
     if (nextThresholds.rainHigh < 0 || nextThresholds.rainHigh > 100) {
       return response.status(400).json({
         message: "Rain wetness threshold must be between 0 and 100"
+      });
+    }
+
+    if (nextThresholds.rainfallHigh < 0 || nextThresholds.rainfallHigh > 1000) {
+      return response.status(400).json({
+        message: "Rainfall threshold must be between 0 and 1000 mm"
       });
     }
 

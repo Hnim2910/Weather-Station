@@ -41,6 +41,7 @@ const BLE_READING_UUID = "6c123450-52d1-4f36-8a87-2d7e4f510103";
 const BLE_CONTROL_UUID = "6c123450-52d1-4f36-8a87-2d7e4f510104";
 const BLE_STATUS_UUID = "6c123450-52d1-4f36-8a87-2d7e4f510105";
 const DASHBOARD_LAYOUT_STORAGE_KEY = "weather-dashboard-grid-layouts-v1";
+const RAIN_MM_PER_TIP = 0.2;
 const ResponsiveGridLayout = WidthProvider(Responsive);
 
 const DEFAULT_DASHBOARD_LAYOUTS: ResponsiveLayouts = {
@@ -49,30 +50,39 @@ const DEFAULT_DASHBOARD_LAYOUTS: ResponsiveLayouts = {
     { i: "humidity", x: 3, y: 0, w: 3, h: 4, minW: 2, minH: 3 },
     { i: "wind", x: 6, y: 0, w: 3, h: 4, minW: 2, minH: 3 },
     { i: "rain", x: 9, y: 0, w: 3, h: 4, minW: 2, minH: 3 },
-    { i: "temperatureTrend", x: 0, y: 4, w: 12, h: 8, minW: 6, minH: 5 },
-    { i: "humidityTrend", x: 0, y: 12, w: 4, h: 6, minW: 3, minH: 4 },
-    { i: "windTrend", x: 4, y: 12, w: 4, h: 6, minW: 3, minH: 4 },
-    { i: "wetnessTrend", x: 8, y: 12, w: 4, h: 6, minW: 3, minH: 4 }
+    { i: "rainfallTotal", x: 0, y: 4, w: 3, h: 4, minW: 2, minH: 3 },
+    { i: "rainfallRate", x: 3, y: 4, w: 3, h: 4, minW: 2, minH: 3 },
+    { i: "temperatureTrend", x: 0, y: 8, w: 12, h: 8, minW: 6, minH: 5 },
+    { i: "humidityTrend", x: 0, y: 16, w: 4, h: 6, minW: 3, minH: 4 },
+    { i: "windTrend", x: 4, y: 16, w: 4, h: 6, minW: 3, minH: 4 },
+    { i: "wetnessTrend", x: 8, y: 16, w: 4, h: 6, minW: 3, minH: 4 },
+    { i: "rainfallRateTrend", x: 0, y: 22, w: 12, h: 6, minW: 6, minH: 4 }
   ],
   md: [
     { i: "temperature", x: 0, y: 0, w: 3, h: 4, minW: 2, minH: 3 },
     { i: "humidity", x: 3, y: 0, w: 3, h: 4, minW: 2, minH: 3 },
     { i: "wind", x: 6, y: 0, w: 3, h: 4, minW: 2, minH: 3 },
     { i: "rain", x: 9, y: 0, w: 3, h: 4, minW: 2, minH: 3 },
-    { i: "temperatureTrend", x: 0, y: 4, w: 12, h: 8, minW: 6, minH: 5 },
-    { i: "humidityTrend", x: 0, y: 12, w: 4, h: 6, minW: 3, minH: 4 },
-    { i: "windTrend", x: 4, y: 12, w: 4, h: 6, minW: 3, minH: 4 },
-    { i: "wetnessTrend", x: 8, y: 12, w: 4, h: 6, minW: 3, minH: 4 }
+    { i: "rainfallTotal", x: 0, y: 4, w: 3, h: 4, minW: 2, minH: 3 },
+    { i: "rainfallRate", x: 3, y: 4, w: 3, h: 4, minW: 2, minH: 3 },
+    { i: "temperatureTrend", x: 0, y: 8, w: 12, h: 8, minW: 6, minH: 5 },
+    { i: "humidityTrend", x: 0, y: 16, w: 4, h: 6, minW: 3, minH: 4 },
+    { i: "windTrend", x: 4, y: 16, w: 4, h: 6, minW: 3, minH: 4 },
+    { i: "wetnessTrend", x: 8, y: 16, w: 4, h: 6, minW: 3, minH: 4 },
+    { i: "rainfallRateTrend", x: 0, y: 22, w: 12, h: 6, minW: 6, minH: 4 }
   ],
   sm: [
     { i: "temperature", x: 0, y: 0, w: 2, h: 4, minW: 1, minH: 3 },
     { i: "humidity", x: 0, y: 4, w: 2, h: 4, minW: 1, minH: 3 },
     { i: "wind", x: 0, y: 8, w: 2, h: 4, minW: 1, minH: 3 },
     { i: "rain", x: 0, y: 12, w: 2, h: 4, minW: 1, minH: 3 },
-    { i: "temperatureTrend", x: 0, y: 16, w: 2, h: 8, minW: 2, minH: 5 },
-    { i: "humidityTrend", x: 0, y: 24, w: 2, h: 6, minW: 2, minH: 4 },
-    { i: "windTrend", x: 0, y: 30, w: 2, h: 6, minW: 2, minH: 4 },
-    { i: "wetnessTrend", x: 0, y: 36, w: 2, h: 6, minW: 2, minH: 4 }
+    { i: "rainfallTotal", x: 0, y: 16, w: 2, h: 4, minW: 1, minH: 3 },
+    { i: "rainfallRate", x: 0, y: 20, w: 2, h: 4, minW: 1, minH: 3 },
+    { i: "temperatureTrend", x: 0, y: 24, w: 2, h: 8, minW: 2, minH: 5 },
+    { i: "humidityTrend", x: 0, y: 32, w: 2, h: 6, minW: 2, minH: 4 },
+    { i: "windTrend", x: 0, y: 38, w: 2, h: 6, minW: 2, minH: 4 },
+    { i: "wetnessTrend", x: 0, y: 44, w: 2, h: 6, minW: 2, minH: 4 },
+    { i: "rainfallRateTrend", x: 0, y: 50, w: 2, h: 6, minW: 2, minH: 4 }
   ]
 };
 
@@ -87,6 +97,9 @@ type WeatherReading = {
   humidity: number;
   pressure: number;
   rain: number;
+  rainRateMmPerHour?: number;
+  rainTipCount?: number;
+  rainfallMm?: number;
   windSpeed: number;
   timestamp?: string;
 };
@@ -141,7 +154,12 @@ type DevicesResponse = {
 };
 
 type AlertRule = {
-  key: "temperatureHigh" | "windHigh" | "humidityHigh" | "rainHigh";
+  key:
+    | "temperatureHigh"
+    | "windHigh"
+    | "humidityHigh"
+    | "rainHigh"
+    | "rainfallHigh";
   label: string;
   comparator: string;
   unit: string;
@@ -152,6 +170,7 @@ type AlertSettings = {
   windHigh: boolean;
   humidityHigh: boolean;
   rainHigh: boolean;
+  rainfallHigh: boolean;
 };
 
 type AlertThresholds = {
@@ -159,6 +178,7 @@ type AlertThresholds = {
   windHigh: number;
   humidityHigh: number;
   rainHigh: number;
+  rainfallHigh: number;
 };
 
 type AlertHistoryEntry = {
@@ -175,6 +195,39 @@ type DeviceAlertsResponse = {
   settings: AlertSettings;
   thresholds: AlertThresholds;
   history: AlertHistoryEntry[];
+};
+
+type BleCharacteristic = EventTarget & {
+  value?: DataView;
+  readValue: () => Promise<DataView>;
+  startNotifications: () => Promise<BleCharacteristic>;
+  stopNotifications: () => Promise<void>;
+  writeValue: (value: BufferSource) => Promise<void>;
+};
+
+type BleService = {
+  getCharacteristic: (uuid: string) => Promise<BleCharacteristic>;
+};
+
+type BleDevice = EventTarget & {
+  id?: string;
+  name?: string;
+  gatt?: {
+    connected?: boolean;
+    connect: () => Promise<{
+      getPrimaryService: (uuid: string) => Promise<BleService>;
+    }>;
+    disconnect: () => void;
+  };
+};
+
+type NavigatorWithBluetooth = Navigator & {
+  bluetooth: {
+    requestDevice: (options: {
+      filters: Array<{ name: string }>;
+      optionalServices: string[];
+    }) => Promise<BleDevice>;
+  };
 };
 
 function formatTimeLabel(timestamp?: string) {
@@ -198,8 +251,22 @@ function buildChartData(readings: WeatherReading[]) {
       humidity: reading.humidity,
       pressure: reading.pressure,
       windSpeed: reading.windSpeed,
-      rain: reading.rain
+      rain: reading.rain,
+      rainRateMmPerHour: reading.rainRateMmPerHour ?? 0,
+      rainfallMm: getRainfallMm(reading)
     }));
+}
+
+function getRainfallMm(reading: WeatherReading) {
+  if (typeof reading.rainfallMm === "number") {
+    return reading.rainfallMm;
+  }
+
+  if (typeof reading.rainTipCount === "number") {
+    return Number((reading.rainTipCount * RAIN_MM_PER_TIP).toFixed(1));
+  }
+
+  return 0;
 }
 
 function getStoredUser() {
@@ -249,9 +316,9 @@ export default function DashboardApp({
   const [isRuleModalOpen, setIsRuleModalOpen] = useState(false);
   const [dashboardLayouts, setDashboardLayouts] =
     useState<ResponsiveLayouts>(DEFAULT_DASHBOARD_LAYOUTS);
-  const bleDeviceRef = React.useRef<any>(null);
-  const bleReadingCharacteristicRef = React.useRef<any>(null);
-  const bleControlCharacteristicRef = React.useRef<any>(null);
+  const bleDeviceRef = React.useRef<BleDevice | null>(null);
+  const bleReadingCharacteristicRef = React.useRef<BleCharacteristic | null>(null);
+  const bleControlCharacteristicRef = React.useRef<BleCharacteristic | null>(null);
   const bleNotificationHandlerRef = React.useRef<((event: Event) => void) | null>(null);
   const bleDisconnectHandlerRef = React.useRef<((event: Event) => void) | null>(null);
   const previousSelectedDeviceIdRef = React.useRef<string>("");
@@ -1087,7 +1154,7 @@ export default function DashboardApp({
       const device =
         reuseKnownDevice && bleDeviceRef.current
           ? bleDeviceRef.current
-          : await (navigator as any).bluetooth.requestDevice({
+          : await (navigator as NavigatorWithBluetooth).bluetooth.requestDevice({
               filters: [{ name: BLE_DEVICE_NAME }],
               optionalServices: [BLE_SERVICE_UUID]
             });
@@ -1129,8 +1196,8 @@ export default function DashboardApp({
 
       const notificationHandler = async (event: Event) => {
         try {
-          const target = event.target as any;
-          const value = target.value;
+          const target = event.target as BleCharacteristic | null;
+          const value = target?.value;
           if (!value) {
             return;
           }
@@ -1255,6 +1322,8 @@ export default function DashboardApp({
 
   const latestReading = readings[0];
   const chartData = buildChartData(readings);
+  const latestRainfallMm = latestReading ? getRainfallMm(latestReading) : 0;
+  const latestRainRateMmPerHour = latestReading?.rainRateMmPerHour ?? 0;
   const selectedDevice = devices.find((device) => device.deviceId === selectedDeviceId) || null;
   const selectedDeviceOwnerId =
     selectedDevice?.owner?._id || selectedDevice?.owner?.id || null;
@@ -1750,6 +1819,24 @@ export default function DashboardApp({
                     bg: "bg-indigo-50"
                   })}
                 </div>
+                <div key="rainfallTotal">
+                  {renderMetricWidget({
+                    label: "Rainfall Total",
+                    value: `${latestRainfallMm.toFixed(1)} mm`,
+                    Icon: CloudRain,
+                    color: "text-emerald-600",
+                    bg: "bg-emerald-50"
+                  })}
+                </div>
+                <div key="rainfallRate">
+                  {renderMetricWidget({
+                    label: "Rainfall Rate",
+                    value: `${latestRainRateMmPerHour.toFixed(1)} mm/h`,
+                    Icon: CloudRain,
+                    color: "text-sky-600",
+                    bg: "bg-sky-50"
+                  })}
+                </div>
                 <div key="temperatureTrend" className="h-full">
                   {renderTrendWidget()}
                 </div>
@@ -1780,6 +1867,16 @@ export default function DashboardApp({
                     dataKey="rain"
                     stroke="#6366f1"
                     gradientId="colorRain"
+                    chartHeight="calc(100% - 3.5rem)"
+                  />
+                </div>
+                <div key="rainfallRateTrend" className="h-full">
+                  <MetricChart
+                    title="Rainfall Rate Trend"
+                    data={chartData}
+                    dataKey="rainRateMmPerHour"
+                    stroke="#059669"
+                    gradientId="colorRainRate"
                     chartHeight="calc(100% - 3.5rem)"
                   />
                 </div>
@@ -1853,7 +1950,12 @@ export default function DashboardApp({
                               <span className="font-semibold">Threshold</span>
                               <input
                                 type="number"
-                                step={rule.key === "windHigh" ? "0.1" : "1"}
+                                step={
+                                  rule.key === "windHigh" ||
+                                  rule.key === "rainfallHigh"
+                                    ? "0.1"
+                                    : "1"
+                                }
                                 value={threshold}
                                 disabled={isSaving}
                                 onChange={(event) => {
